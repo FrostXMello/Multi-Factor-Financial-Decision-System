@@ -16,6 +16,27 @@ class DownloadConfig:
     auto_adjust: bool = False
 
 
+DEFAULT_PERIOD_BY_INTERVAL: dict[str, str] = {
+    "1m": "7d",
+    "2m": "60d",
+    "5m": "60d",
+    "15m": "60d",
+    "30m": "60d",
+    "60m": "730d",
+    "90m": "730d",
+    "1h": "730d",
+    "1d": "5y",
+    "1wk": "10y",
+}
+
+
+def _normalize_interval(interval: str) -> str:
+    token = str(interval).strip().lower()
+    if token == "1h":
+        return "60m"
+    return token
+
+
 def download_stock_data(ticker: str, cfg: DownloadConfig | None = None) -> pd.DataFrame:
     """
     Download daily OHLCV data using yfinance.
@@ -31,10 +52,12 @@ def download_stock_data(ticker: str, cfg: DownloadConfig | None = None) -> pd.Da
 
     ticker = ticker.strip().upper()
 
+    interval = _normalize_interval(cfg.interval)
+
     df = yf.download(
         tickers=ticker,
         period=cfg.period,
-        interval=cfg.interval,
+        interval=interval,
         auto_adjust=cfg.auto_adjust,
         progress=False,
         threads=True,
@@ -61,11 +84,45 @@ def download_stock_data(ticker: str, cfg: DownloadConfig | None = None) -> pd.Da
 
     # Clean numeric issues, sort, remove duplicate dates.
     df = df.replace([np.inf, -np.inf], np.nan)
-    df["Date"] = pd.to_datetime(df["Date"], utc=False)
+    # Normalize all timestamps to a single representation to avoid merge errors
+    # between timezone-aware and timezone-naive datetime columns.
+    df["Date"] = pd.to_datetime(df["Date"], utc=True).dt.tz_localize(None)
     df = df.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
 
     # Drop rows with missing OHLCV values.
     df = df.dropna(subset=needed).reset_index(drop=True)
 
     return df
+
+
+def download_multi_timeframe_data(
+    ticker: str,
+    *,
+    intervals: tuple[str, ...] = ("1m", "5m", "15m", "60m", "1d"),
+    period_by_interval: dict[str, str] | None = None,
+    auto_adjust: bool = False,
+) -> dict[str, pd.DataFrame]:
+    """
+    Download OHLCV data for multiple intervals.
+
+    The returned dict keys are normalized interval tokens (e.g. "60m" for "1h").
+    """
+    if not intervals:
+        raise ValueError("intervals must contain at least one interval")
+
+    period_map = dict(DEFAULT_PERIOD_BY_INTERVAL)
+    if period_by_interval:
+        period_map.update({str(k).strip().lower(): v for k, v in period_by_interval.items()})
+
+    out: dict[str, pd.DataFrame] = {}
+    for interval in intervals:
+        norm_interval = _normalize_interval(interval)
+        period = period_map.get(norm_interval, "1y")
+        df = download_stock_data(
+            ticker,
+            cfg=DownloadConfig(period=period, interval=norm_interval, auto_adjust=auto_adjust),
+        )
+        out[norm_interval] = df
+
+    return out
 

@@ -11,3 +11,8 @@ env/
 .idea/
 .vscode/
 .streamlit/
+.cache/
+*.log
+reports/
+outputs/
+artifacts/
