@@ -4,7 +4,7 @@ Strategy selection for the trading pipeline.
 Each strategy uses a disjoint feature set built in `feature_engineering` (no cross-strategy
 columns on the training matrix) to avoid accidental leakage between modes.
 
-- **multi_factor**: Macro + micro + technical fusion stack (existing “AI stack”).
+- **multi_factor**: Macro + micro + technical fusion stack.
 - **momentum**: Trend-following style common in systematic / CTA books — ride strength
   when medium-term trend aligns and momentum (RSI band) confirms.
 - **mean_reversion**: Statistical mean-reversion / bounded-price intuition — bet on

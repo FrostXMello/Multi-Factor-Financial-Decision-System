@@ -64,8 +64,8 @@ STRATEGY_UI_TO_CANON = {
 }
 
 
-st.set_page_config(page_title="Multi-Factor AI Financial Decision System", layout="wide")
-st.title("Multi-Factor AI Financial Decision System")
+st.set_page_config(page_title="Multi-Factor Financial Decision System", layout="wide")
+st.title("Multi-Factor Financial Decision System")
 if CORE_MODE:
     if TECHNICAL_MODE:
         st.caption(

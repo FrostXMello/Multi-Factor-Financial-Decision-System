@@ -1,4 +1,4 @@
-# Multi-Factor AI Financial Decision System
+# Multi-Factor Financial Decision System
 
 ## Project Status
 Active
