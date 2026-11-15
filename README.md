@@ -45,24 +45,44 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## CORE_MODE vs research mode
+## TECHNICAL_MODE and CORE_MODE
 
-`core_config.CORE_MODE` (default **True**) turns the stack into an **evaluation-ready** path: fewer knobs, chronological train/test only, and no optimizer in the UI or pipeline entry points.
+Both flags live in `core_config.py`. **`TECHNICAL_MODE = True` is the safe default** and it is checked first. `CORE_MODE` only applies when `TECHNICAL_MODE` is already `False`.
 
-| Area | CORE_MODE = True | CORE_MODE = False (research / PBL-3, PBL-4) |
-|------|------------------|---------------------------------------------|
-| Data | Daily base + one higher timeframe (`1d` + `1wk`); clean alignment | Multi-timeframe / intraday as configured in the app |
-| Features | **Strategy-dependent**: Multi-Factor → MA20, MA50, RSI14, Daily_Return, Rolling_Volatility_10; **Momentum** → MA20/MA50, RSI14, ROC, price vs MA50; **Mean Reversion** → rolling mean/std, Z-score, RSI14 (no `TF_*`) | Full `TF_*` set only for **Multi-Factor** when `core_mode` is off |
-| Models | Single type: gradient boosting (`CORE_MODEL_TYPE`); `predict_proba` (Mean Reversion uses rules for signals; model proba is diagnostic) | GB / LogReg / RF; optional walk-forward |
-| Micro / fundamentals | Disabled at runtime (stub probabilities) | Micro model + fundamentals flows active |
-| Fusion | **Technical only** (no macro in CORE). Momentum / Mean Reversion skip fusion. | Multi-Factor: weighted blend + optional **trainable meta-fusion** |
-| Strategy logic | **Multi-Factor:** fixed P>0.6 BUY, P<0.4 SELL. **Momentum:** P gates + trend/RSI confirmation. **Mean Reversion:** Z-score thresholds. | Quantile or fixed thresholds for Multi-Factor from UI |
-| Optimizer | **Disabled** (`assert_optimizer_allowed` on optimizer APIs) | Regime-aware grid search, portfolio optimizer, benchmark suite |
-| Backtest / UI | Metrics + equity vs **buy & hold**; simplified Streamlit | Full diagnostics, histograms, benchmark CSVs |
+| Area | `TECHNICAL_MODE = True` (default) | Both flags `False` (research) |
+|------|-----------------------------------|-------------------------------|
+| Data | Daily bars plus one weekly context series. Yahoo adjusted OHLC. | Intervals chosen in the app |
+| Features | Price-only: MA20, MA50, price vs MA50, RSI14, ROC, daily return, 10-day vol | Strategy-specific features; multi-factor can add higher-timeframe columns |
+| Labels | Forward return over `CORE_HORIZON_BARS` (default 7) above 1%. The last horizon rows stay scoreable with a null target | Same label builder |
+| Model | One gradient boosting classifier, chronological split, embargo of `horizon_bars` | GB / logistic / random forest. Walk-forward uses the same embargo |
+| Signals | `P > 0.6` and close above MA50 to buy; `P < 0.4` and close below MA50 to sell | Fixed or expanding-window quantile thresholds |
+| Macro / micro / fusion / optimizer | Not called | Available. Meta-fusion is still an in-sample stack and stays off unless you opt in |
+| Backtest | Next-session open fills, Indian cash-equity cost assumptions, net and gross returns | Same fill and cost engine |
 
-**Why this improves robustness for academic demos:** fewer correlated features and no searchable meta-learner reduce optimistic in-sample fit; dropping micro/fundamentals avoids weak point-in-time metadata; a single classifier type and fixed fusion weights make the story linear (“features → proba → gates → PnL”).
+Setting only `CORE_MODE = False` does **not** leave the technical path. To open the research stack, set **both** `TECHNICAL_MODE = False` and `CORE_MODE = False`, then restart Streamlit. Leave both `True` until that research path is reviewed.
 
-**Re-enabling advanced behavior (e.g. PBL-3, PBL-4):** set `CORE_MODE = False` in `core_config.py`, restart the app, switch to **Advanced Research**, and use the existing modules (optimizer, meta-fusion, intraday, micro) unchanged.
+## Execution, labels, and validation
+
+- Features on bar `t` use information through the close of `t`.
+- The training label is the forward close `t + horizon`. Rows without that close are not used for fitting, and `score_features` can score them with no `Target` column.
+- The train/test cut drops the last `horizon_bars` training labels so those labels cannot use a test-period close. Walk-forward folds use the same purge.
+- A signal on bar `t` fills at the **next bar's open**. It never fills at the close that created the signal. If that open is missing, the fill is skipped. The last bar is a signal only.
+- Equity is marked at each bar's close after that open fill.
+- Buy-and-hold buys at the first valid open of the same window. Neither book is force-sold on the final close.
+- Sharpe, Sortino, and volatility use 252 for daily bars, 52 for weekly bars, and `252 * (6.25 hours / bar length)` for intraday bars. CAGR uses calendar time between the first and last equity dates.
+- Reported total return is **net** of costs. Gross return, cost total, turnover, closed-trade count, win rate, profit factor, CAGR, Sharpe, Sortino, and max drawdown are on the backtest result. The benchmark is buy-and-hold on the same window.
+
+## Transaction-cost assumptions
+
+`transaction_costs.py` holds configurable NSE cash-equity assumptions. They are **not** a live broker tariff.
+
+Delivery preset (default): brokerage 3 bps per side, STT 0.10% buy and sell, exchange charge 0.00297% per side, SEBI 0.0001% per side, stamp duty 0.015% on buys, GST 18% on brokerage + exchange + SEBI, slippage 5 bps. Intraday preset: STT 0.025% on sells only, stamp 0.003% on buys. Pass `IndiaEquityCostConfig.zero()` or `apply_costs=False` to inspect a frictionless fill. Confirm rates before quoting them as a broker's current schedule.
+
+## Survivorship
+
+NIFTY 50, NIFTY Midcap 150, and the sector stock lists are **today's** members (`utils.py`, `sector_universe.py`). A historical test therefore keeps survivors and omits names that left the index. Treat index-basket results as optimistic versus a point-in-time universe.
+
+Prices use Yahoo `auto_adjust=True`, so open and close are split- and dividend-adjusted together. Invalid OHLC bars (range that does not contain open/close, non-positive prices, negative volume) are dropped.
 
 ## Notes
 
@@ -70,7 +90,7 @@ streamlit run app.py
 - We use proxy data sources due to academic constraints: Yahoo intraday coverage can be limited/noisy and fundamentals from metadata are not guaranteed point-in-time clean.
 - Meta-fusion currently uses in-sample stacking in parts of the flow; future improvement includes out-of-fold stacking to reduce bias.
 - Optimizer overfitting risk is managed with constrained search spaces and Fast mode defaults, but parameter search should still be treated as potentially optimistic.
-- Splits train/test chronologically to avoid leakage.
+- Splits train/test chronologically and embargoes `horizon_bars` so training labels do not use test closes.
 - Technical model supports multi-timeframe analysis aligned to the selected execution interval.
 - You can run down to `1m` bars and forecast over `horizon_bars` (not just next day).
 - Trade engine supports multiple intraday trades with per-day cap and minimum spacing.

@@ -13,7 +13,8 @@ from utils import validate_columns
 class DownloadConfig:
     period: str = "5y"
     interval: str = "1d"
-    auto_adjust: bool = False
+    # Yahoo adjusted OHLC so splits and dividends stay on the same basis as Close.
+    auto_adjust: bool = True
 
 
 DEFAULT_PERIOD_BY_INTERVAL: dict[str, str] = {
@@ -35,6 +36,39 @@ def _normalize_interval(interval: str) -> str:
     if token == "1h":
         return "60m"
     return token
+
+
+def sanitize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Drop bars that cannot be traded or marked: non-positive prices, negative volume,
+    or a high/low range that does not contain the open and close.
+    """
+    required = ["Open", "High", "Low", "Close", "Volume"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"OHLCV frame missing columns: {missing}")
+    out = df.replace([np.inf, -np.inf], np.nan).copy()
+    o = out["Open"].astype(float)
+    h = out["High"].astype(float)
+    l = out["Low"].astype(float)
+    c = out["Close"].astype(float)
+    v = out["Volume"].astype(float)
+    ok = (
+        np.isfinite(o)
+        & np.isfinite(h)
+        & np.isfinite(l)
+        & np.isfinite(c)
+        & np.isfinite(v)
+        & (o > 0)
+        & (c > 0)
+        & (h >= l)
+        & (h + 1e-8 >= np.maximum(o, c))
+        & (l - 1e-8 <= np.minimum(o, c))
+        & (v >= 0)
+    )
+    cleaned = out.loc[ok].reset_index(drop=True)
+    cleaned.attrs["dropped_invalid_bars"] = int((~ok).sum())
+    return cleaned
 
 
 def download_stock_data(ticker: str, cfg: DownloadConfig | None = None) -> pd.DataFrame:
@@ -89,8 +123,11 @@ def download_stock_data(ticker: str, cfg: DownloadConfig | None = None) -> pd.Da
     df["Date"] = pd.to_datetime(df["Date"], utc=True).dt.tz_localize(None)
     df = df.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
 
-    # Drop rows with missing OHLCV values.
+    # Drop rows with missing OHLCV values, then drop structurally invalid bars.
     df = df.dropna(subset=needed).reset_index(drop=True)
+    df = sanitize_ohlcv(df)
+    if df.empty:
+        raise ValueError(f"No valid OHLCV rows left for ticker: {ticker}")
 
     return df
 
@@ -100,7 +137,7 @@ def download_multi_timeframe_data(
     *,
     intervals: tuple[str, ...] = ("1m", "5m", "15m", "60m", "1d"),
     period_by_interval: dict[str, str] | None = None,
-    auto_adjust: bool = False,
+    auto_adjust: bool = True,
 ) -> dict[str, pd.DataFrame]:
     """
     Download OHLCV data for multiple intervals.

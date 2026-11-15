@@ -23,7 +23,7 @@ class UniverseDownloadConfig:
     min_rows: int = MIN_OHLCV_ROWS
     min_avg_dollar_volume_20d: float = MIN_AVG_DOLLAR_VOLUME_20D
     sleep_sec: float = 0.03  # light pacing for Yahoo
-    auto_adjust: bool = False
+    auto_adjust: bool = True
 
 
 def _avg_dollar_volume_20d(df: pd.DataFrame) -> float:

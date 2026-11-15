@@ -109,10 +109,15 @@ def render_single_ticker_quant_dashboard(
 
     with tab_perf:
         st.subheader("Performance summary")
-        r1 = st.columns(3)
-        r1[0].metric("Total return", _fmt_pct(perf["total_return_pct"]))
-        r1[1].metric("CAGR", _fmt_pct(perf["cagr_pct"]))
-        r1[2].metric("Final value", f"{perf['final_portfolio_value']:,.0f}")
+        r1 = st.columns(4)
+        r1[0].metric("Net return", _fmt_pct(perf.get("net_return_pct", perf["total_return_pct"])))
+        r1[1].metric("Gross return", _fmt_pct(perf.get("gross_return_pct", perf["total_return_pct"])))
+        r1[2].metric("CAGR", _fmt_pct(perf["cagr_pct"]))
+        r1[3].metric("Final value", f"{perf['final_portfolio_value']:,.0f}")
+        st.caption(
+            f"Transaction costs (model assumptions): {perf.get('total_transaction_costs', 0.0):,.2f}. "
+            "Signals fill at the next session open."
+        )
         r2 = st.columns(3)
         r2[0].metric("Sharpe (ann.)", _fmt_num(radj["sharpe"], 2))
         r2[1].metric("Sortino (ann.)", _fmt_num(radj["sortino"], 2))
@@ -245,10 +250,14 @@ def render_portfolio_quant_dashboard(
 
     st.subheader("Portfolio analytics")
     r1 = st.columns(4)
-    r1[0].metric("Total return", _fmt_pct(perf["total_return_pct"]))
-    r1[1].metric("CAGR", _fmt_pct(perf["cagr_pct"]))
-    r1[2].metric("Final value", f"{perf['final_portfolio_value']:,.0f}")
+    r1[0].metric("Net return", _fmt_pct(perf.get("net_return_pct", perf["total_return_pct"])))
+    r1[1].metric("Gross return", _fmt_pct(perf.get("gross_return_pct", perf["total_return_pct"])))
+    r1[2].metric("CAGR", _fmt_pct(perf["cagr_pct"]))
     r1[3].metric("Sharpe", _fmt_num(radj["sharpe"], 2))
+    st.caption(
+        f"Transaction costs (model assumptions): {perf.get('total_transaction_costs', 0.0):,.2f}. "
+        f"Final value {perf['final_portfolio_value']:,.0f}."
+    )
     r2 = st.columns(4)
     r2[0].metric("Max DD", _fmt_pct(risk["max_drawdown_pct"]))
     r2[1].metric("Sortino", _fmt_num(radj["sortino"], 2))

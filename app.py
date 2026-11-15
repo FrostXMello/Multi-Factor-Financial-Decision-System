@@ -55,7 +55,7 @@ from model import ModelConfig, train_model, walk_forward_validate
 from risk_model import RiskConfig, apply_risk_gating, compute_risk_frame
 from strategy import attach_signals, enforce_trade_frequency
 from strategy_modes import STRATEGY_MEAN_REVERSION, STRATEGY_MOMENTUM, STRATEGY_MULTI_FACTOR
-from utils import NIFTY50_TICKERS, NIFTY_MIDCAP150_TICKERS, parse_tickers_text
+from utils import NIFTY50_TICKERS, NIFTY_MIDCAP150_TICKERS, SURVIVORSHIP_NOTE, parse_tickers_text
 
 STRATEGY_UI_TO_CANON = {
     "Multi-Factor": STRATEGY_MULTI_FACTOR,
@@ -217,7 +217,7 @@ def _render_portfolio_ticker_chooser(*, default_selection: list[str]) -> str:
 @st.cache_data(ttl=10 * 60)
 def load_multi_timeframe_cached(ticker: str, base_interval: str, context_intervals: tuple[str, ...]):
     intervals = tuple(dict.fromkeys((base_interval,) + context_intervals + ("1d",)))
-    return download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=False)
+    return download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=True)
 
 
 @st.cache_data(ttl=10 * 60)
@@ -228,7 +228,7 @@ def load_clean_data_api_cached(ticker: str, base_interval: str, context_interval
             base_interval=base_interval,
             context_intervals=context_intervals,
             horizon_bars=horizon_bars,
-            auto_adjust=False,
+            auto_adjust=True,
         ),
     )
 
@@ -500,10 +500,12 @@ with col_left:
             st.caption(
                 "NIFTY Midcap 150 list: `utils.NIFTY_MIDCAP150_TICKERS` (NSE composition; update after index rebalancing)."
             )
+            st.caption(SURVIVORSHIP_NOTE)
             tickers_text = _render_portfolio_ticker_chooser(default_selection=NIFTY_MIDCAP150_TICKERS[:15])
             max_tickers = st.slider("Max tickers", 1, 150, 15, step=1)
         else:
             st.caption("Smaller NIFTY subset recommended for speed in CORE mode. Use search + multiselect or “Choose all matching”.")
+            st.caption(SURVIVORSHIP_NOTE)
             tickers_text = _render_portfolio_ticker_chooser(default_selection=NIFTY50_TICKERS[:10])
             max_tickers = st.slider("Max tickers", 1, 50, 10, step=1)
         initial_capital_total = st.number_input("Initial capital", value=100000.0, min_value=1000.0, step=1000.0)
@@ -799,11 +801,20 @@ def _run_single_pipeline(single_ticker: str):
     prices = bundle["base_prices"]
     model_df = bundle["model_df"]
     technical_cols = bundle["technical_feature_cols"]
-    result = train_model(model_df, cfg=ModelConfig(model_type=model_type), feature_cols=technical_cols)
+    result = train_model(
+        model_df,
+        cfg=ModelConfig(model_type=model_type, horizon_bars=int(horizon_bars)),
+        feature_cols=technical_cols,
+    )
     if fast_mode:
         wf_mean = float("nan")
     else:
-        wf = walk_forward_validate(model_df, cfg=ModelConfig(model_type=model_type), feature_cols=technical_cols, n_folds=5)
+        wf = walk_forward_validate(
+            model_df,
+            cfg=ModelConfig(model_type=model_type, horizon_bars=int(horizon_bars)),
+            feature_cols=technical_cols,
+            n_folds=5,
+        )
         wf_mean = float(wf.mean_score)
     proba_for_signal = result.test_proba
     if not advanced_mode and simple_use_fusion:
@@ -1007,7 +1018,11 @@ def _run_nifty50_pipeline():
                         horizon_bars=horizon_bars,
                     ),
                 )
-                result = train_model(model_df, cfg=ModelConfig(model_type=model_type), feature_cols=technical_cols)
+                result = train_model(
+                    model_df,
+                    cfg=ModelConfig(model_type=model_type, horizon_bars=int(horizon_bars)),
+                    feature_cols=technical_cols,
+                )
                 proba_for_signal = result.test_proba
                 if not advanced_mode and simple_use_fusion:
                     proba_for_signal = _simple_fusion_proba(result.test_proba, result.test_df["Date"], tech_weight=simple_tech_weight)
@@ -1292,7 +1307,7 @@ if run:
             portfolio_table_placeholder.empty()
 
         elif universe_mode == "Single Ticker":
-            latest_signal_placeholder.metric("Latest Signal (for next day)", latest["signal"])
+            latest_signal_placeholder.metric("Latest signal (fills next session open)", latest["signal"])
             _proba_lbl = (
                 "Model probability (P(meaningful forward move > threshold over horizon))"
                 if TECHNICAL_MODE
@@ -1301,7 +1316,11 @@ if run:
             latest_proba_placeholder.metric(_proba_lbl, f"{latest['proba']:.3f}")
             accuracy_placeholder.info(f"Test Accuracy: {test_acc:.3f}")
             backtest_placeholder.success(
-                f"Final Portfolio Value: {backtest['final_portfolio_value']:.2f} | Total Return: {backtest['total_return_pct']:.2f}%"
+                "Final value: "
+                f"{backtest['final_portfolio_value']:.2f} | "
+                f"Net return: {backtest['total_return_pct']:.2f}% | "
+                f"Gross return: {backtest.get('gross_return_pct', float('nan')):.2f}% | "
+                f"Costs: {backtest.get('total_transaction_costs', 0.0):.2f}"
             )
             wf_msg = ""
             if not CORE_MODE:

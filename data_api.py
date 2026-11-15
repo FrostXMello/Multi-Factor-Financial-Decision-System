@@ -14,7 +14,7 @@ class DataAPIConfig:
     base_interval: str = "1m"
     context_intervals: tuple[str, ...] = ("5m", "15m", "60m", "1d")
     horizon_bars: int = 5
-    auto_adjust: bool = False
+    auto_adjust: bool = True
     core_mode: bool = False
     strategy_mode: str = STRATEGY_MULTI_FACTOR
 

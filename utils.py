@@ -9,6 +9,11 @@ import pandas as pd
 # Best-effort default universe (Yahoo Finance tickers, NSE suffix).
 # Note: NIFTY constituents can change over time; the app will skip tickers
 # that fail to download so you can edit the list in the UI if needed.
+SURVIVORSHIP_NOTE = (
+    "Survivorship bias: NIFTY 50, NIFTY Midcap 150, and the sector buckets are today's "
+    "constituents. Historical tests keep names that survived index changes and drop names "
+    "that left, so past results are optimistic relative to a point-in-time universe."
+)
 NIFTY50_TICKERS: list[str] = [
     "ADANIPORTS.NS",
     "ASIANPAINT.NS",
