@@ -222,3 +222,130 @@ export function CandleChart({
     </div>
   )
 }
+
+const DEMO_COLORS = ['#7c6bf0', '#3dd68c', '#e6b450', '#5b9fd4', '#f07178']
+
+export function MultiEquityChart({
+  seriesMap,
+  height = 320,
+  detail,
+}: {
+  seriesMap: Record<string, { date: string; equity: number }[]>
+  height?: number
+  detail?: string
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const seriesRefs = useRef<ISeriesApi<'Line'>[]>([])
+  const [hover, setHover] = useState('Hover for equity')
+
+  const entries = useMemo(
+    () =>
+      Object.entries(seriesMap).map(([key, rows]) => ({
+        key,
+        data: rows
+          .map((r) => {
+            const t = toUnix(r.date)
+            return t == null ? null : { time: t as Time, value: r.equity }
+          })
+          .filter((x): x is { time: Time; value: number } => x != null),
+      })),
+    [seriesMap],
+  )
+
+  const seriesKeys = useMemo(() => entries.map((e) => e.key).join('|'), [entries])
+
+  useEffect(() => {
+    const el = hostRef.current
+    if (!el || !entries.length) return
+    const chart = createChart(el, {
+      height,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#9aa3b5',
+        fontFamily: '"IBM Plex Sans", sans-serif',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: 'rgba(42, 46, 56, 0.65)' },
+        horzLines: { color: 'rgba(42, 46, 56, 0.65)' },
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: { borderColor: '#2a2e38' },
+      timeScale: { borderColor: '#2a2e38', timeVisible: false },
+    })
+    chartRef.current = chart
+    const keys = seriesKeys.split('|').filter(Boolean)
+    const lines = keys.map((key, i) =>
+      chart.addSeries(LineSeries, {
+        color: DEMO_COLORS[i % DEMO_COLORS.length],
+        lineWidth: key.includes('combined') ? 3 : 2,
+        title: key,
+        priceLineVisible: false,
+      }),
+    )
+    seriesRefs.current = lines
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time || !param.seriesData.size) {
+        setHover('Hover for equity')
+        return
+      }
+      const parts = lines
+        .map((line, i) => {
+          const pt = param.seriesData.get(line) as { value: number } | undefined
+          return pt ? `${keys[i].replace(/_/g, ' ')} ${pt.value.toFixed(0)}` : null
+        })
+        .filter(Boolean)
+      setHover(parts.join(' · ') || 'Hover for equity')
+    })
+    const resize = () => {
+      if (!hostRef.current) return
+      chart.applyOptions({ width: hostRef.current.clientWidth })
+    }
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      chart.remove()
+      chartRef.current = null
+      seriesRefs.current = []
+    }
+    // seriesKeys captures identity of lines; data updates handled below
+  }, [height, seriesKeys])
+
+  useEffect(() => {
+    try {
+      seriesRefs.current.forEach((line, i) => {
+        line.setData(entries[i]?.data ?? [])
+      })
+      chartRef.current?.timeScale().fitContent()
+    } catch {
+      setHover('Chart data unavailable')
+    }
+  }, [entries])
+
+  return (
+    <div className="chart-shell">
+      <div className="chart-toolbar">
+        <div className="chart-legend">
+          <FreshnessBadge value="demo" />
+          {entries.map((e, i) => (
+            <span key={e.key} className="chip" style={{ borderColor: DEMO_COLORS[i % DEMO_COLORS.length] }}>
+              {e.key.replace(/_/g, ' ')}
+            </span>
+          ))}
+          <span className="muted tiny">{detail ?? 'DEMO equity paths'}</span>
+        </div>
+        <div className="chart-hover mono">{hover}</div>
+      </div>
+      {!entries.some((e) => e.data.length) ? (
+        <div className="chart-empty">
+          <p className="muted">No equity series yet. Run the showcase.</p>
+        </div>
+      ) : (
+        <div ref={hostRef} className="chart-canvas" style={{ height }} />
+      )}
+    </div>
+  )
+}

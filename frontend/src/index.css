@@ -510,6 +510,34 @@ input:focus, select:focus {
   background: var(--bg);
 }
 .strategy-card strong { display: block; margin-bottom: 0.25rem; font-size: 0.88rem; }
+.profit-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.65rem;
+}
+.profit-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem 0.8rem;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.profit-card.combined {
+  border-color: rgba(61, 214, 140, 0.45);
+  background: rgba(61, 214, 140, 0.06);
+  grid-column: span 1;
+}
+.profit-card strong { font-size: 0.92rem; }
+.profit-value {
+  margin: 0.15rem 0;
+  font-size: 1.35rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-weight: 600;
+}
+.profit-value.up { color: var(--positive); }
+.profit-value.down { color: var(--negative); }
 .subtle-title {
   margin: 0 0 0.4rem;
   font-size: 0.78rem;

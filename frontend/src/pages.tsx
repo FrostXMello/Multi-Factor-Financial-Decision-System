@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api, apiBase } from './api'
-import { CandleChart } from './charts'
+import { CandleChart, MultiEquityChart } from './charts'
 import {
   AiInsight,
   Badge,
@@ -18,6 +18,30 @@ import {
   pct,
 } from './components'
 import { useLoad } from './hooks'
+import { buildShowcaseDemo } from './showcaseDemo'
+
+const DEMO_TICKERS = [
+  'RELIANCE.NS',
+  'TCS.NS',
+  'INFY.NS',
+  'HDFCBANK.NS',
+  'ICICIBANK.NS',
+  'SBIN.NS',
+  'BHARTIARTL.NS',
+  'ITC.NS',
+  'LT.NS',
+  'AXISBANK.NS',
+  'KOTAKBANK.NS',
+  'WIPRO.NS',
+]
+
+const DEMO_PRESETS = [
+  { id: 'technical_trend', label: 'Technical Trend', blurb: 'MA50 + probability sleeve' },
+  { id: 'momentum', label: 'Momentum', blurb: 'Trend-following sleeve' },
+  { id: 'mean_reversion', label: 'Mean Reversion', blurb: 'Snap-back sleeve' },
+  { id: 'multi_factor', label: 'Multi-Factor', blurb: 'Blended factor sleeve' },
+  { id: 'combined_ensemble', label: 'Combined Ensemble', blurb: 'All four blended — headline profit path' },
+]
 
 function pickCols(rows: Record<string, unknown>[], preferred: string[]) {
   if (!rows.length) return preferred
@@ -191,28 +215,39 @@ function defaultRange(): { start: string; end: string } {
   return { start: iso(start), end: iso(end) }
 }
 
+function initialDemo() {
+  const range = defaultRange()
+  const payload = buildShowcaseDemo({
+    ticker: 'RELIANCE.NS',
+    start: range.start,
+    end: range.end,
+    capital: 100000,
+  }) as unknown as Record<string, unknown>
+  return {
+    range,
+    payload,
+    bestId: String((payload.best as Record<string, unknown> | undefined)?.strategy_id ?? 'combined_ensemble'),
+  }
+}
+
 export function BacktestingPage() {
-  const defaults = useLoad(() => api.backtestDefaults())
-  const symbols = useLoad(() => api.backtestSymbols())
-  const initial = defaultRange()
+  const boot = useMemo(() => initialDemo(), [])
   const [ticker, setTicker] = useState('RELIANCE.NS')
   const [filter, setFilter] = useState('')
-  const [start, setStart] = useState(initial.start)
-  const [end, setEnd] = useState(initial.end)
+  const [start, setStart] = useState(boot.range.start)
+  const [end, setEnd] = useState(boot.range.end)
   const [capital, setCapital] = useState(100000)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [sim, setSim] = useState<Record<string, unknown> | null>(null)
-  const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null)
-  const candles = useLoad(() => api.marketCandles(ticker, 220), [ticker])
+  const [sim, setSim] = useState<Record<string, unknown> | null>(boot.payload)
+  const [selectedStrategy, setSelectedStrategy] = useState<string | null>(boot.bestId)
 
-  const universe = ((symbols.data?.symbols as string[]) ?? []).filter((s) =>
-    s.toLowerCase().includes(filter.trim().toLowerCase()),
-  )
-  const presets = (defaults.data?.strategy_presets as Record<string, unknown>[]) ?? []
+  const universe = DEMO_TICKERS.filter((s) => s.toLowerCase().includes(filter.trim().toLowerCase()))
   const strategies = (sim?.strategies as Record<string, unknown>[]) ?? []
   const buy = (sim?.buy_analysis as Record<string, unknown> | null) ?? null
   const windowInfo = (sim?.window as Record<string, unknown> | null) ?? null
+  const profitBoard = (sim?.profit_board as Record<string, unknown>[]) ?? []
+  const comparison = (sim?.comparison_equity as Record<string, { date: string; equity: number }[]>) ?? {}
   const active =
     strategies.find((s) => String(s.strategy_id) === selectedStrategy) ??
     (sim?.best as Record<string, unknown> | null) ??
@@ -227,11 +262,12 @@ export function BacktestingPage() {
     const value = Number(row.equity)
     return { Date: row.date, Open: value, High: value, Low: value, Close: value, Volume: 0 }
   })
+  const combined = strategies.find((s) => String(s.strategy_id) === 'combined_ensemble')
 
-  const runSimulation = async (event?: FormEvent) => {
+  const runShowcase = (event?: FormEvent) => {
     event?.preventDefault()
     if (!start || !end) {
-      setError('Start and end dates are required. Simulation only uses that window.')
+      setError('Start and end dates are required.')
       return
     }
     if (start > end) {
@@ -241,17 +277,9 @@ export function BacktestingPage() {
     setBusy(true)
     setError(null)
     try {
-      const payload = await api.backtestSimulateStrategies({
-        ticker,
-        start,
-        end,
-        initial_capital: capital,
-        cost_segment: 'equity_delivery',
-        save: true,
-      })
+      const payload = buildShowcaseDemo({ ticker, start, end, capital }) as unknown as Record<string, unknown>
       setSim(payload)
-      setSelectedStrategy(String((payload.best as Record<string, unknown> | undefined)?.strategy_id ?? ''))
-      await candles.reload()
+      setSelectedStrategy(String((payload.best as Record<string, unknown> | undefined)?.strategy_id ?? 'combined_ensemble'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -263,21 +291,22 @@ export function BacktestingPage() {
     <>
       <PageHeader
         title="Backtesting"
-        subtitle="Pick a stock + date range, simulate five strategies, get buy/sell orders only inside that window."
+        subtitle="DEMO showcase — four strategy sleeves side by side, plus a combined ensemble with profit."
         badges={
           <>
-            <Badge label="HISTORICAL" tone="historical" />
+            <Badge label="DEMO" tone="warn" />
+            <Badge label="SIMULATED" tone="historical" />
             <Badge label="NO LIVE ORDERS" tone="muted" />
           </>
         }
       />
       <EnvBanner
-        mode="DATE-WINDOW SIMULATION"
-        detail="Outside the selected start/end dates is blocked from results. Extra history is only warm-up for indicators."
+        mode="DEMO / FAKE DATA"
+        detail="Synthetic equity paths for presentation only. Not live market data, not a verified backtest, broker execution disabled."
       />
 
-      <Section title="Setup" subtitle="Keep it simple — stock, dates, capital, then run">
-        <form className="toolbar" onSubmit={runSimulation}>
+      <Section title="Setup" subtitle="Pick a stock + window, then regenerate the five DEMO paths">
+        <form className="toolbar" onSubmit={runShowcase}>
           <label>
             Search
             <input value={filter} onChange={(e) => setFilter(e.target.value.toUpperCase())} placeholder="RELIANCE" />
@@ -299,11 +328,11 @@ export function BacktestingPage() {
             <input type="number" min={1000} value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
           </label>
           <button type="submit" disabled={busy || !ticker || !start || !end}>
-            {busy ? 'Simulating…' : 'Run simulation'}
+            {busy ? 'Generating…' : 'Run showcase'}
           </button>
         </form>
         <div className="stock-grid">
-          {universe.slice(0, 48).map((symbol) => (
+          {universe.map((symbol) => (
             <button
               key={symbol}
               type="button"
@@ -315,26 +344,63 @@ export function BacktestingPage() {
           ))}
         </div>
         <div className="strategy-grid" style={{ marginTop: '0.75rem' }}>
-          {presets.map((preset) => (
-            <div key={String(preset.id)} className="strategy-card">
-              <strong>{String(preset.label)}</strong>
-              <p className="muted tiny">{String(preset.blurb)}</p>
+          {DEMO_PRESETS.map((preset) => (
+            <div key={preset.id} className="strategy-card">
+              <strong>{preset.label}</strong>
+              <p className="muted tiny">{preset.blurb}</p>
             </div>
           ))}
         </div>
       </Section>
 
       {error && <ErrorState message={error} />}
-      {busy && <LoadingState label={`Simulating five strategies on ${ticker} for ${start} → ${end}…`} />}
+      {busy && <LoadingState label={`Building DEMO paths for ${ticker}…`} />}
 
       {sim && (
         <>
           <div className="metric-strip">
             <Metric label="Ticker" value={String(sim.ticker)} />
             <Metric label="Window" value={`${String(windowInfo?.start ?? start)} → ${String(windowInfo?.end ?? end)}`} />
-            <Metric label="Outside window" value="blocked" />
+            <Metric label="Mode" value="DEMO" />
+            <Metric
+              label="Combined profit"
+              value={money((combined?.metrics as Record<string, unknown> | undefined)?.profit)}
+            />
             <Metric label="Best sleeve" value={String((sim.best as Record<string, unknown> | null)?.label ?? '—')} />
           </div>
+
+          <Section
+            title="Profit board"
+            subtitle="Four sleeves + combined ensemble — synthetic P&L for the selected window"
+          >
+            <div className="profit-board">
+              {profitBoard.map((row) => {
+                const isCombined = String(row.strategy).toLowerCase().includes('combined')
+                return (
+                  <div key={String(row.strategy)} className={`profit-card${isCombined ? ' combined' : ''}`}>
+                    <span className="muted tiny">{isCombined ? 'HEADLINE' : 'SLEEVE'}</span>
+                    <strong>{String(row.strategy)}</strong>
+                    <p className={`profit-value${Number(row.profit) >= 0 ? ' up' : ' down'}`}>
+                      {money(row.profit)}
+                    </p>
+                    <p className="muted tiny">
+                      net {String(row.net_return_pct)}% · Sharpe {String(row.sharpe)} · DD{' '}
+                      {String(row.max_drawdown_pct)}%
+                    </p>
+                    <p className="mono tiny">final {money(row.final_value)}</p>
+                  </div>
+                )
+              })}
+            </div>
+          </Section>
+
+          <Section title="Side-by-side equity" subtitle="All five DEMO paths on one chart">
+            <MultiEquityChart
+              seriesMap={comparison}
+              height={320}
+              detail={`${ticker} · ${start} → ${end} · DEMO`}
+            />
+          </Section>
 
           <Section title="Strategy ranking" subtitle={String(sim.ranking_note ?? '')}>
             <div className="candidate-list">
@@ -356,8 +422,8 @@ export function BacktestingPage() {
                       <span className="muted tiny"> · score {Number(row.rank_score ?? 0).toFixed(3)}</span>
                     </span>
                     <SignalBadge signal={row.signal} />
+                    <span className="mono tiny">profit {money(m.profit)}</span>
                     <span className="mono tiny">net {String(m.net_return_pct ?? '—')}%</span>
-                    <span className="mono tiny">orders {String(((row.orders as unknown[]) ?? []).length)}</span>
                   </button>
                 )
               })}
@@ -367,51 +433,48 @@ export function BacktestingPage() {
           {active && (
             <Section
               title={`Selected · ${String(active.label)}`}
-              subtitle="Analytics inside your date window only"
-              actions={<SignalBadge signal={active.signal} />}
+              subtitle={String(active.blurb ?? 'DEMO sleeve detail')}
+              actions={
+                <>
+                  <FreshnessBadge value="demo" />
+                  <SignalBadge signal={active.signal} />
+                </>
+              }
             >
               <div className="metric-strip">
+                <Metric label="Profit" value={money(activeMetrics.profit)} />
                 <Metric label="Net return %" value={String(activeMetrics.net_return_pct ?? '—')} />
-                <Metric label="CAGR %" value={String(activeMetrics.cagr_pct ?? '—')} />
                 <Metric label="Sharpe" value={String(activeMetrics.sharpe ?? '—')} />
-                <Metric
-                  label="Max DD %"
-                  value={String(activeMetrics.max_drawdown_pct ?? activeMetrics.max_drawdown ?? '—')}
-                />
+                <Metric label="Max DD %" value={String(activeMetrics.max_drawdown_pct ?? '—')} />
                 <Metric label="Win rate" value={activeMetrics.win_rate == null ? '—' : pct(activeMetrics.win_rate)} />
                 <Metric label="Final value" value={money(activeMetrics.final_portfolio_value)} />
                 <Metric label="Buy/Sell signals" value={String(orders.length)} />
-                <Metric label="Probability" value={active.proba == null ? '—' : String(active.proba)} />
               </div>
 
               <div className="layout-split">
                 <div>
                   <h4 className="subtle-title">Equity curve</h4>
                   <CandleChart
-                    rows={
-                      equityProxy.length
-                        ? equityProxy
-                        : ((candles.data?.candles as Record<string, unknown>[]) ?? [])
-                    }
+                    rows={equityProxy}
                     height={280}
-                    showMa20={equityProxy.length === 0}
-                    showMa50={equityProxy.length === 0}
-                    freshness="historical"
-                    detail={equityProxy.length ? `Equity ${start}→${end}` : `${ticker} prices`}
+                    showMa20={false}
+                    showMa50={false}
+                    freshness="demo"
+                    detail={`DEMO equity ${start}→${end}`}
                   />
                 </div>
                 <div>
-                  <h4 className="subtle-title">Buy / sell orders (window only)</h4>
+                  <h4 className="subtle-title">Buy / sell orders</h4>
                   <Table
                     rows={orders}
                     columns={pickCols(orders, ['date', 'side', 'price', 'proba', 'risk_score', 'no_trade'])}
-                    empty="No BUY/SELL signals inside this date window."
+                    empty="No DEMO orders in this window."
                   />
                 </div>
               </div>
 
               <Expandable title="Closed trades (P&amp;L)" defaultOpen>
-                <Table rows={(active.trades_tail as Record<string, unknown>[]) ?? []} empty="No closed trades in window." />
+                <Table rows={(active.trades_tail as Record<string, unknown>[]) ?? []} empty="No closed trades." />
               </Expandable>
             </Section>
           )}
@@ -419,7 +482,7 @@ export function BacktestingPage() {
           {buy?.available ? (
             <Section
               title="Why buy / why caution"
-              subtitle={`${String(buy.ticker)} · ${String(buy.best_strategy)}`}
+              subtitle={`${String(buy.ticker)} · ${String(buy.best_strategy)} · DEMO`}
               actions={
                 <Badge
                   label={String(buy.recommendation ?? '')}
@@ -447,7 +510,7 @@ export function BacktestingPage() {
               </div>
               {(buy.explanation as Record<string, unknown>)?.summary ? (
                 <div className="ai-insight compact" style={{ marginTop: '0.85rem' }}>
-                  <span className="ai-kicker">AI explanation</span>
+                  <span className="ai-kicker">DEMO explanation</span>
                   <p className="ai-summary">{String((buy.explanation as Record<string, unknown>).summary)}</p>
                 </div>
               ) : null}
@@ -456,7 +519,9 @@ export function BacktestingPage() {
         </>
       )}
 
-      <AiInsight contextLabel="backtesting" />
+      <p className="disclaimer">
+        All figures on this page are synthetic DEMO data for showcase. Not investment advice. Broker execution disabled.
+      </p>
     </>
   )
 }
