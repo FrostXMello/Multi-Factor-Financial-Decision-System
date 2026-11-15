@@ -27,6 +27,7 @@ Vite proxies `/api` to `http://127.0.0.1:8000`. For Vercel, set `VITE_API_BASE_U
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Liveness; `broker_execution: false` |
+| GET | `/api/health/ready` | Readiness; SQLite stores open/migrated |
 | GET | `/api/overview` | Session, provider, paper snapshot |
 | GET | `/api/market/status` | Providers, data mode, DB stats |
 | GET | `/api/market/quotes` | Stored watchlist quotes |
