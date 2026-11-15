@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
+from api.settings import cors_origin_list, ensure_persistent_paths
 from market_data.store import MarketStore, open_store
-from paper_trading.demo import DEMO_ACCOUNT_ID, DEMO_INITIAL_CAPITAL
 from paper_trading.engine import PAPER_ACCOUNT_ID, PaperTradingEngine
 from paper_trading.price_sources import quote_from_market_store
 from paper_trading.store import PaperStore, open_paper_store
@@ -14,12 +13,14 @@ from paper_trading.store import PaperStore, open_paper_store
 
 @lru_cache(maxsize=1)
 def get_market_store() -> MarketStore:
-    return open_store()
+    paths = ensure_persistent_paths()
+    return open_store(paths["market_data_db"])
 
 
 @lru_cache(maxsize=1)
 def get_paper_store() -> PaperStore:
-    return open_paper_store()
+    paths = ensure_persistent_paths()
+    return open_paper_store(paths["paper_trading_db"])
 
 
 def clear_store_caches() -> None:
@@ -41,5 +42,4 @@ def paper_engine(*, mode: str = "paper") -> PaperTradingEngine:
 
 
 def cors_origins() -> list[str]:
-    raw = os.environ.get("API_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-    return [part.strip() for part in raw.split(",") if part.strip()]
+    return cors_origin_list()

@@ -1,0 +1,37 @@
+# Render Blueprint — API service with persistent SQLite disk.
+# Set secret env vars in the Render dashboard (do not commit values).
+services:
+  - type: web
+    name: mf-decision-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health/ready
+    disk:
+      name: mf-decision-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: MARKET_DATA_DB
+        value: /var/data/market.sqlite
+      - key: PAPER_TRADING_DB
+        value: /var/data/paper.sqlite
+      - key: API_CORS_ORIGINS
+        sync: false
+      - key: MARKET_DATA_WATCHLIST
+        value: RELIANCE.NS,TCS.NS,HDFCBANK.NS
+      - key: BROKER_LIVE_BASE_URL
+        sync: false
+      - key: BROKER_API_KEY
+        sync: false
+      - key: BROKER_ACCESS_TOKEN
+        sync: false
+      - key: AI_REASONING_BASE_URL
+        sync: false
+      - key: AI_REASONING_API_KEY
+        sync: false
+      - key: AI_REASONING_MODEL
+        value: gpt-4o-mini

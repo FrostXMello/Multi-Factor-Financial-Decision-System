@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from api.deps import get_market_store, get_paper_store, paper_engine
 from api.serialize import jsonable
+from api.settings import public_runtime_config
 from market_data.providers import BrokerLiveProvider, YFinanceHistoryProvider
 from market_data.session import nse_cash_status
 from paper_trading.engine import PAPER_ACCOUNT_ID
@@ -17,12 +18,41 @@ router = APIRouter(prefix="/api", tags=["overview"])
 
 @router.get("/health")
 def health() -> dict:
+    cfg = public_runtime_config()
     return {
         "status": "ok",
         "service": "multi-factor-financial-decision-system",
         "time": datetime.now(timezone.utc).isoformat(),
         "broker_execution": False,
+        "environment": cfg["environment"],
         "note": "API exposes research and paper trading only. Real broker orders are disabled.",
+        "live_feed_verification": cfg["live_feed_verification"],
+    }
+
+
+@router.get("/health/ready")
+def health_ready() -> dict:
+    """Readiness: SQLite stores open and are writable."""
+    try:
+        market = get_market_store()
+        paper = get_paper_store()
+        market_stats = market.stats()
+        paper_stats = paper.stats()
+        # Touch schema version to prove the connection responds.
+        if int(market_stats.get("schema_version") or 0) < 1:
+            raise RuntimeError("market store schema is not migrated")
+        if int(paper_stats.get("schema_version") or 0) < 1:
+            raise RuntimeError("paper store schema is not migrated")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"not ready: {exc}") from exc
+    cfg = public_runtime_config()
+    return {
+        "status": "ready",
+        "broker_execution": False,
+        "persistence": cfg["persistence"],
+        "market_schema_version": market_stats.get("schema_version"),
+        "paper_schema_version": paper_stats.get("schema_version"),
+        "time": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -87,10 +117,13 @@ def diagnostics() -> dict:
         )
     from reasoning.service import provider_status
 
+    runtime = public_runtime_config()
     return {
         "environment": env,
+        "runtime": runtime,
         "market_store": jsonable(get_market_store().stats()),
         "paper_store": jsonable(get_paper_store().stats()),
         "broker_execution_enabled": False,
         "ai_reasoning": provider_status(),
+        "secrets_exposed": False,
     }

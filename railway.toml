@@ -1,0 +1,15 @@
+# Railway deployment hints. Attach a volume mounted at /var/data in the dashboard.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health/ready"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+
+[variables]
+APP_ENV = "production"
+DATA_DIR = "/var/data"
+MARKET_DATA_DB = "/var/data/market.sqlite"
+PAPER_TRADING_DB = "/var/data/paper.sqlite"
