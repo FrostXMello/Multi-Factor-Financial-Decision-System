@@ -66,8 +66,9 @@ def apply_risk_gating(
     Apply risk constraints to precomputed model signals.
 
     Rules:
-    - If NoTrade is True -> force HOLD.
-    - Else keep BUY/SELL/HOLD but attach PositionSize for execution sizing.
+    - NoTrade blocks new BUY entries.
+    - NoTrade does not block SELL. An open position must still be able to exit.
+    - Otherwise keep BUY/SELL/HOLD and attach PositionSize for entry sizing.
     """
     required = ["Date", "Signal"]
     missing = [c for c in required if c not in signals_df.columns]
@@ -78,6 +79,10 @@ def apply_risk_gating(
     merged["Date"] = pd.to_datetime(merged["Date"])
     risk = risk_frame.copy()
     risk["Date"] = pd.to_datetime(risk["Date"])
+    # Risk columns own the gate. Drop any prior copies so the merge cannot suffix them.
+    overlap = [c for c in ("RiskScore", "NoTrade", "PositionSize", "RealizedVol", "RollingDrawdown") if c in merged.columns]
+    if overlap:
+        merged = merged.drop(columns=overlap)
     merged = merged.merge(risk, on="Date", how="left")
 
     for col in ["RiskScore", "NoTrade", "PositionSize"]:
@@ -90,8 +95,10 @@ def apply_risk_gating(
 
     new_signal = merged["Signal"].astype(str).str.upper()
     merged["SignalModel"] = new_signal
-    new_signal = np.where(merged["NoTrade"], "HOLD", new_signal)
+    entry_blocked = merged["NoTrade"].to_numpy() & (new_signal == buy_label)
+    new_signal = np.where(entry_blocked, "HOLD", new_signal)
     merged["Signal"] = new_signal
+    merged["EntryBlocked"] = entry_blocked
 
     # Position sizing is only meaningful for active directions.
     active = merged["Signal"].isin([buy_label, sell_label])

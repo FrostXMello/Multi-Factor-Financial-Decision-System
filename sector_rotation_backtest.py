@@ -8,7 +8,13 @@ import numpy as np
 import pandas as pd
 
 from data_loader import DownloadConfig, download_stock_data
-from multi_layer_backtest import _portfolio_bt_dict
+from multi_layer_backtest import (
+    _portfolio_bt_dict,
+    basket_returns_from_next_open,
+    build_price_panel,
+    rebalance_turnover_cost,
+)
+from transaction_costs import IndiaEquityCostConfig
 from sector_rotation_config import SectorRotationConfig
 from sector_rotation_pipeline import run_sector_rotation_walk_forward_step
 
@@ -52,6 +58,7 @@ def backtest_sector_rotation_walk_forward(
     if cfg is None:
         cfg = SectorRotationConfig()
     panel = build_close_panel(stock_prices_full)
+    open_panel = build_price_panel(stock_prices_full, "Open", forward_fill=False).reindex(panel.index)
     if panel.empty or len(panel) < cfg.warmup_bars + 20:
         raise ValueError("Not enough stock history for sector rotation backtest.")
 
@@ -77,7 +84,7 @@ def backtest_sector_rotation_walk_forward(
     try:
         bench_df = download_stock_data(
             benchmark_ticker,
-            cfg=DownloadConfig(period="max", interval="1d", auto_adjust=False),
+            cfg=DownloadConfig(period="max", interval="1d", auto_adjust=True),
         )
         b = bench_df.copy()
         b["Date"] = pd.to_datetime(b["Date"])
@@ -93,9 +100,13 @@ def backtest_sector_rotation_walk_forward(
     rebalance_meta: list[dict] = []
 
     nav_s = float(initial_capital)
+    nav_g = float(initial_capital)
     nav_b = float(initial_capital)
     n_days_invested = 0
     n_days_total = 0
+    total_costs = 0.0
+    held: list[str] = []
+    cost_cfg = IndiaEquityCostConfig.equity_delivery()
 
     for k in range(len(reb_dates) - 1):
         d0 = pd.Timestamp(reb_dates[k]).normalize()
@@ -121,17 +132,18 @@ def backtest_sector_rotation_walk_forward(
             }
         )
 
+        cost = rebalance_turnover_cost(nav_s, held, picks, cost_cfg)
+        total_costs += cost
+        nav_s = max(0.0, nav_s - cost)
+        held = list(picks)
+
         mask = (panel.index > d0) & (panel.index <= d1)
         chunk_idx = panel.index[mask]
         if len(chunk_idx) == 0:
             continue
 
         if picks:
-            sub = panel.loc[chunk_idx, [p for p in picks if p in panel.columns]]
-            if sub.shape[1] == 0:
-                r_strat = pd.Series(0.0, index=chunk_idx)
-            else:
-                r_strat = sub.pct_change().mean(axis=1, skipna=True).fillna(0.0)
+            r_strat = basket_returns_from_next_open(panel, open_panel, chunk_idx, picks)
         else:
             r_strat = pd.Series(0.0, index=chunk_idx)
 
@@ -147,6 +159,7 @@ def backtest_sector_rotation_walk_forward(
             rsv = float(r_strat.loc[dt])
             rbv = float(r_bench.loc[dt])
             nav_s *= 1.0 + rsv
+            nav_g *= 1.0 + rsv
             nav_b *= 1.0 + rbv
             strategy_rows.append({"Date": dt, "PortfolioValue": nav_s})
             bench_rows.append({"Date": dt, "PortfolioValue": nav_b})
@@ -184,6 +197,9 @@ def backtest_sector_rotation_walk_forward(
         exposure_pct=exposure_pct,
         total_signal_bars=n_days_total,
     )
+    portfolio_bt["gross_return_pct"] = float((nav_g / float(initial_capital) - 1.0) * 100.0)
+    portfolio_bt["net_return_pct"] = float(portfolio_bt["total_return_pct"])
+    portfolio_bt["total_transaction_costs"] = float(total_costs)
     benchmark_bt = _portfolio_bt_dict(
         eq_b,
         initial_capital=initial_capital,

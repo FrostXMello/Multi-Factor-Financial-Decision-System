@@ -40,21 +40,61 @@ def compute_drawdown_series(equity_curve: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def annualized_volatility(daily_returns: pd.Series) -> float:
+def infer_periods_per_year(dates: pd.Series | pd.DatetimeIndex) -> float:
+    """
+    Annualization factor from the median spacing of the equity timestamps.
+
+    Daily bars (median gap at least 18 hours) use 252. Weekly bars use 52.
+    Shorter bars use 252 NSE cash sessions of 6.25 hours (09:15–15:30).
+    """
+    idx = pd.DatetimeIndex(pd.to_datetime(pd.Index(dates))).sort_values()
+    if len(idx) < 3:
+        return 252.0
+    delta = idx.to_series().diff().dt.total_seconds().median()
+    if delta is None or not np.isfinite(delta) or float(delta) <= 0:
+        return 252.0
+    delta = float(delta)
+    day = 86400.0
+    if delta >= 5.0 * day:
+        return 52.0
+    if delta >= 18.0 * 3600.0:
+        return 252.0
+    session_seconds = 6.25 * 3600.0
+    bars_per_session = max(1.0, session_seconds / delta)
+    return float(252.0 * bars_per_session)
+
+
+def _periods_for_returns(returns: pd.Series, periods_per_year: float | None) -> float:
+    if periods_per_year is not None and np.isfinite(periods_per_year) and periods_per_year > 0:
+        return float(periods_per_year)
+    return infer_periods_per_year(returns.index)
+
+
+def annualized_volatility(daily_returns: pd.Series, periods_per_year: float | None = None) -> float:
     dr = daily_returns.dropna()
     if len(dr) < 2:
         return float("nan")
-    return float(dr.std() * np.sqrt(252))
+    ppy = _periods_for_returns(dr, periods_per_year)
+    return float(dr.std() * np.sqrt(ppy))
 
 
-def sharpe_ratio(daily_returns: pd.Series, rf_daily: float = 0.0) -> float:
+def sharpe_ratio(
+    daily_returns: pd.Series,
+    rf_daily: float = 0.0,
+    periods_per_year: float | None = None,
+) -> float:
     dr = daily_returns.dropna() - rf_daily
     if len(dr) < 2 or dr.std() <= 0:
         return float("nan")
-    return float(np.sqrt(252) * dr.mean() / dr.std())
+    ppy = _periods_for_returns(dr, periods_per_year)
+    return float(np.sqrt(ppy) * dr.mean() / dr.std())
 
 
-def sortino_ratio(daily_returns: pd.Series, rf_daily: float = 0.0) -> float:
+def sortino_ratio(
+    daily_returns: pd.Series,
+    rf_daily: float = 0.0,
+    periods_per_year: float | None = None,
+) -> float:
     dr = daily_returns.dropna() - rf_daily
     if len(dr) < 2:
         return float("nan")
@@ -64,7 +104,8 @@ def sortino_ratio(daily_returns: pd.Series, rf_daily: float = 0.0) -> float:
     ds = float(downside.std())
     if ds <= 0 or not np.isfinite(ds):
         return float("nan")
-    return float(np.sqrt(252) * dr.mean() / ds)
+    ppy = _periods_for_returns(dr, periods_per_year)
+    return float(np.sqrt(ppy) * dr.mean() / ds)
 
 
 def average_drawdown_pct(dd_decimal: pd.Series) -> float:
@@ -143,7 +184,10 @@ def monthly_returns_matrix(equity_curve: pd.DataFrame) -> pd.DataFrame:
     df = equity_curve[["Date", "PortfolioValue"]].copy()
     df["Date"] = pd.to_datetime(df["Date"])
     df = df.sort_values("Date").set_index("Date")
-    month_end = df["PortfolioValue"].resample("M").last()
+    try:
+        month_end = df["PortfolioValue"].resample("ME").last()
+    except ValueError:
+        month_end = df["PortfolioValue"].resample("M").last()
     mret = month_end.pct_change().dropna() * 100.0
     if mret.empty:
         return pd.DataFrame()
@@ -158,12 +202,17 @@ def monthly_returns_matrix(equity_curve: pd.DataFrame) -> pd.DataFrame:
     return pivot
 
 
-def rolling_sharpe_series(daily_returns: pd.Series, window: int = 60) -> pd.Series:
+def rolling_sharpe_series(
+    daily_returns: pd.Series,
+    window: int = 60,
+    periods_per_year: float | None = None,
+) -> pd.Series:
     if len(daily_returns) < window + 1:
         return pd.Series(dtype=float)
+    ppy = _periods_for_returns(daily_returns.dropna(), periods_per_year)
     mu = daily_returns.rolling(window, min_periods=window).mean()
     sig = daily_returns.rolling(window, min_periods=window).std()
-    rs = np.sqrt(252) * mu / sig.replace(0, np.nan)
+    rs = np.sqrt(ppy) * mu / sig.replace(0, np.nan)
     return rs.dropna()
 
 
@@ -221,6 +270,12 @@ def build_full_analytics(
     return {
         "performance": {
             "total_return_pct": float(backtest.get("total_return_pct", float("nan"))),
+            "net_return_pct": float(backtest.get("net_return_pct", backtest.get("total_return_pct", float("nan")))),
+            "gross_return_pct": float(
+                backtest.get("gross_return_pct", backtest.get("total_return_pct", float("nan")))
+            ),
+            "total_transaction_costs": float(backtest.get("total_transaction_costs", 0.0)),
+            "turnover": float(backtest.get("turnover", float("nan"))),
             "cagr_pct": float(cagr_dec * 100.0) if np.isfinite(cagr_dec) else float("nan"),
             "final_portfolio_value": fv,
             "years": years,

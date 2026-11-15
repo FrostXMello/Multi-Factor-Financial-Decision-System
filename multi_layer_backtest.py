@@ -11,25 +11,90 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from backtest_analytics import infer_periods_per_year, sharpe_ratio
 from multi_layer_config import MULTI_LAYER_MAX_REBALANCE_POINTS, MULTI_LAYER_WARMUP_BARS, MultiLayerPipelineConfig
 from multi_layer_data import truncate_prices_asof
 from multi_layer_pipeline import run_multi_layer_pipeline
+from transaction_costs import IndiaEquityCostConfig, buy_charges, sell_charges
 
 
-def build_close_panel(prices_by_ticker: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Wide Close matrix, union calendar, forward-filled."""
+def build_price_panel(prices_by_ticker: dict[str, pd.DataFrame], column: str, *, forward_fill: bool = False) -> pd.DataFrame:
+    """Wide price matrix. Opens are not forward-filled, so a missing print cannot become a fill."""
     series_list: list[pd.Series] = []
     for sym, df in prices_by_ticker.items():
-        if df is None or df.empty:
+        if df is None or df.empty or column not in df.columns:
             continue
-        s = df.set_index(pd.to_datetime(df["Date"]))["Close"].astype(float).sort_index()
+        s = df.set_index(pd.to_datetime(df["Date"]))[column].astype(float).sort_index()
         s.name = sym
         series_list.append(s)
     if not series_list:
         return pd.DataFrame()
     panel = pd.concat(series_list, axis=1).sort_index()
     panel = panel[~panel.index.duplicated(keep="last")]
-    return panel.ffill()
+    if forward_fill:
+        panel = panel.ffill()
+    return panel
+
+
+def build_close_panel(prices_by_ticker: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Wide Close matrix, union calendar, forward-filled for benchmark continuity."""
+    return build_price_panel(prices_by_ticker, "Close", forward_fill=True)
+
+
+def basket_returns_from_next_open(
+    close_panel: pd.DataFrame,
+    open_panel: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    columns: list[str],
+) -> pd.Series:
+    """
+    Equal-weight path after a decision at the previous close.
+
+    The first session with a valid open earns close/open - 1. Later sessions earn
+    close-to-close. A missing open does not use the prior close as a fill.
+    """
+    cols = [c for c in columns if c in close_panel.columns and c in open_panel.columns]
+    out: list[float] = []
+    entered = False
+    prev_close: pd.Series | None = None
+    for dt in dates:
+        if not cols:
+            out.append(0.0)
+            continue
+        cl = close_panel.loc[dt, cols].astype(float)
+        op = open_panel.loc[dt, cols].astype(float)
+        if not entered:
+            valid = op.notna() & cl.notna() & (op > 0) & (cl > 0)
+            if bool(valid.any()):
+                r = float((cl[valid] / op[valid] - 1.0).mean())
+                entered = True
+                prev_close = cl
+            else:
+                r = 0.0
+        else:
+            assert prev_close is not None
+            valid = cl.notna() & prev_close.notna() & (prev_close > 0) & (cl > 0)
+            r = float((cl[valid] / prev_close[valid] - 1.0).mean()) if bool(valid.any()) else 0.0
+            prev_close = cl
+        out.append(r if np.isfinite(r) else 0.0)
+    return pd.Series(out, index=dates)
+
+
+def rebalance_turnover_cost(nav: float, old: list[str], new: list[str], cfg: IndiaEquityCostConfig | None = None) -> float:
+    """Cash cost of selling dropped names and buying new names at equal weight."""
+    if cfg is None:
+        cfg = IndiaEquityCostConfig.equity_delivery()
+    old_set, new_set = set(old), set(new)
+    if nav <= 0 or (not old_set and not new_set):
+        return 0.0
+    if not old_set:
+        sell_frac, buy_frac = 0.0, 1.0
+    elif not new_set:
+        sell_frac, buy_frac = 1.0, 0.0
+    else:
+        sell_frac = len(old_set - new_set) / len(old_set)
+        buy_frac = len(new_set - old_set) / len(new_set)
+    return float(sell_charges(nav * sell_frac, cfg) + buy_charges(nav * buy_frac, cfg))
 
 
 def _month_end_dates(index: pd.DatetimeIndex, min_pos: int) -> list[pd.Timestamp]:
@@ -61,12 +126,9 @@ def _portfolio_bt_dict(
     rolling_max = v.cummax()
     drawdown = v / rolling_max - 1.0
     max_drawdown_pct = float(drawdown.min() * 100.0)
-    daily_ret = v.pct_change().dropna()
-    sharpe = (
-        float(np.sqrt(252) * daily_ret.mean() / daily_ret.std())
-        if len(daily_ret) > 1 and daily_ret.std() > 0
-        else float("nan")
-    )
+    daily_ret = v.pct_change()
+    daily_ret.index = pd.DatetimeIndex(eq["Date"])
+    sharpe = sharpe_ratio(daily_ret.dropna(), periods_per_year=infer_periods_per_year(eq["Date"]))
     return {
         "equity_curve": eq,
         "final_portfolio_value": final_value,
@@ -102,6 +164,7 @@ def backtest_multi_layer_walk_forward(
     if pipe_cfg is None:
         pipe_cfg = MultiLayerPipelineConfig()
     panel = build_close_panel(prices_by_ticker)
+    open_panel = build_price_panel(prices_by_ticker, "Open", forward_fill=False).reindex(panel.index)
     if panel.empty or len(panel) < warmup_bars + 30:
         raise ValueError("Not enough overlapping price history for multi-layer backtest.")
 
@@ -129,9 +192,13 @@ def backtest_multi_layer_walk_forward(
 
     all_syms = [c for c in panel.columns if panel[c].notna().any()]
     nav_s = float(initial_capital)
+    nav_g = float(initial_capital)
     nav_b = float(initial_capital)
     days_with_holdings = 0
     n_trading_days = 0
+    total_costs = 0.0
+    held: list[str] = []
+    cost_cfg = IndiaEquityCostConfig.equity_delivery()
 
     for k in range(len(reb_dates) - 1):
         d0 = pd.Timestamp(reb_dates[k]).normalize()
@@ -144,6 +211,10 @@ def backtest_multi_layer_walk_forward(
             picks = []
 
         rebalance_log.append({"Date": d0, "Picks": picks, "N": len(picks)})
+        cost = rebalance_turnover_cost(nav_s, held, picks, cost_cfg)
+        total_costs += cost
+        nav_s = max(0.0, nav_s - cost)
+        held = list(picks)
 
         mask = (panel.index > d0) & (panel.index <= d1)
         chunk_idx = panel.index[mask]
@@ -151,11 +222,7 @@ def backtest_multi_layer_walk_forward(
             continue
 
         if picks:
-            sub = panel.loc[chunk_idx, [p for p in picks if p in panel.columns]]
-            if sub.shape[1] == 0:
-                r_strat = pd.Series(0.0, index=chunk_idx)
-            else:
-                r_strat = sub.pct_change(fill_method=None).mean(axis=1, skipna=True).fillna(0.0)
+            r_strat = basket_returns_from_next_open(panel, open_panel, chunk_idx, picks)
         else:
             r_strat = pd.Series(0.0, index=chunk_idx)
 
@@ -169,6 +236,7 @@ def backtest_multi_layer_walk_forward(
             rsv = float(r_strat.loc[dt])
             rbv = float(r_bench.loc[dt])
             nav_s *= 1.0 + rsv
+            nav_g *= 1.0 + rsv
             nav_b *= 1.0 + rbv
             strategy_rows.append({"Date": dt, "PortfolioValue": nav_s})
             bench_rows.append({"Date": dt, "PortfolioValue": nav_b})
@@ -207,6 +275,10 @@ def backtest_multi_layer_walk_forward(
         exposure_pct=exposure_pct,
         total_signal_bars=n_trading_days,
     )
+    gross_return_pct = (nav_g / float(initial_capital) - 1.0) * 100.0
+    portfolio_bt["gross_return_pct"] = float(gross_return_pct)
+    portfolio_bt["net_return_pct"] = float(portfolio_bt["total_return_pct"])
+    portfolio_bt["total_transaction_costs"] = float(total_costs)
     benchmark_bt = _portfolio_bt_dict(
         eq_b,
         initial_capital=initial_capital,
