@@ -885,6 +885,7 @@ def _run_nifty50_pipeline():
                 "fundamentals_quality": funda_quality,
                 "signals_by_ticker": res["signals_by_ticker"],
                 "strategy_mode": pipeline_strategy_mode,
+                "evaluation": res.get("evaluation", "holdout"),
             },
         )
 
@@ -1313,8 +1314,22 @@ if run:
                 if TECHNICAL_MODE
                 else "Model Probability (P(next return > 0))"
             )
+            _rel = extra.get("reliability") if isinstance(extra, dict) else None
+            if isinstance(_rel, dict) and _rel.get("decision_method") not in (None, "raw"):
+                _proba_lbl = f"{_proba_lbl} — calibrated ({_rel.get('decision_method')})"
+            elif isinstance(_rel, dict) and _rel.get("evaluation") == "walk_forward":
+                _proba_lbl = f"{_proba_lbl} — uncalibrated walk-forward"
             latest_proba_placeholder.metric(_proba_lbl, f"{latest['proba']:.3f}")
-            accuracy_placeholder.info(f"Test Accuracy: {test_acc:.3f}")
+            if isinstance(_rel, dict) and _rel.get("evaluation") == "walk_forward":
+                _oos_acc = float((_rel.get("oos_metrics") or {}).get("accuracy", float("nan")))
+                _ins_acc = float(_rel.get("insample_accuracy", float("nan")))
+                accuracy_placeholder.info(
+                    f"Out-of-sample accuracy: {_oos_acc:.3f} | "
+                    f"In-sample accuracy: {_ins_acc:.3f} | "
+                    f"Holdout diagnostic: {test_acc:.3f}"
+                )
+            else:
+                accuracy_placeholder.info(f"Holdout accuracy: {test_acc:.3f}")
             backtest_placeholder.success(
                 "Final value: "
                 f"{backtest['final_portfolio_value']:.2f} | "

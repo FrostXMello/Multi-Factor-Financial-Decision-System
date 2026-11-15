@@ -9,11 +9,11 @@ When TECHNICAL_MODE is True (recommended default):
 - **Data**: daily bars as base; optional single higher timeframe (weekly) for context features only.
 - **Features**: price-only — MA20/MA50, price vs MA50, RSI14, ROC, daily return, 10d vol (+ optional weekly).
 - **Target**: forward return over `CORE_HORIZON_BARS` exceeding `TECHNICAL_MIN_FORWARD_RETURN` (meaningful move, not noise).
-- **Model**: one gradient boosting classifier, chronological split, `predict_proba`.
-- **Signals**: P>buy & Close>MA50 → BUY; P<sell & Close<MA50 → SELL; else HOLD (no RSI band gate).
+- **Model**: one gradient boosting classifier. Purged walk-forward is the primary evaluation. The single chronological holdout remains a diagnostic.
+- **Signals**: calibrated P>buy & Close>MA50 → BUY; calibrated P<sell & Close<MA50 → SELL; else HOLD. Raw probabilities are used when calibration is off or the calibration slice is too small.
 - **Portfolio**: optional daily top-N by probability with a single capital pool (see `backtest`).
 - **Risk**: volatility / drawdown / position sizing kept, thresholds tuned to avoid over-blocking.
-- **Optimizer / walk-forward / intraday churn**: off in this mode.
+- **Optimizer / meta-fusion / micro snapshots**: off. Walk-forward evaluation stays on. Intraday churn controls stay at the technical-mode defaults.
 
 When CORE_MODE is True (legacy evaluation switch; typically aligned with TECHNICAL_MODE):
 - Fixed intervals, fixed thresholds, fast path, etc.

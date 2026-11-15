@@ -37,6 +37,12 @@ from fusion_model import FusionConfig, core_simple_fusion, meta_fusion, weighted
 from macro_model import MacroConfig, build_macro_features, infer_macro_probability
 from micro_model import MicroConfig, infer_micro_probability
 from model import ModelConfig, train_model, walk_forward_validate
+from model_evaluation import (
+    assemble_decision_frame,
+    evaluate_walk_forward,
+    holdout_reliability_dict,
+    public_reliability_dict,
+)
 from risk_model import RiskConfig, apply_risk_gating, compute_risk_frame
 from strategy import apply_daily_top_n_buys, attach_signals, attach_technical_trend_signals, enforce_trade_frequency
 from strategy_modes import (
@@ -73,6 +79,11 @@ class FourModelConfig:
     strategy_mode: str = STRATEGY_MULTI_FACTOR
     # TECHNICAL_MODE portfolio: max concurrent names (capital concentrated in top probabilities).
     portfolio_top_n: int = 3
+    # Walk-forward evaluation size. These are predeclared; they are not chosen from test results.
+    model_max_iter: int = 250
+    walk_forward_folds: int = 4
+    permutation_repeats: int = 4
+    calibration: str = "auto"
 
 
 def _effective_four_model_config(cfg: FourModelConfig) -> FourModelConfig:
@@ -182,6 +193,7 @@ def _run_four_model_pipeline_with_data(
         model_type=cfg.model_type,
         random_state=42,
         horizon_bars=int(cfg.horizon_bars),
+        max_iter=int(cfg.model_max_iter),
     )
     tech_result = train_model(
         model_df,
@@ -202,12 +214,38 @@ def _run_four_model_pipeline_with_data(
         wf_folds = []
 
     test_df = tech_result.test_df.reset_index(drop=True).copy()
+    reliability = holdout_reliability_dict(
+        "This path reports the chronological holdout. Walk-forward probabilities are the technical-mode decision source."
+    )
 
     if TECHNICAL_MODE:
-        # Single probability stream; trend confirmation on MA50 (no RSI band, no fusion).
+        # Purged walk-forward is the probability source. The holdout model above stays a diagnostic.
+        n_folds = int(cfg.walk_forward_folds)
+        n_repeats = int(cfg.permutation_repeats)
+        if portfolio_batch:
+            n_folds = min(n_folds, 3)
+            n_repeats = min(n_repeats, 2)
+        try:
+            evaluation = evaluate_walk_forward(
+                model_df,
+                cfg=model_cfg,
+                feature_cols=technical_feature_cols,
+                n_folds=n_folds,
+                calibration=cfg.calibration,
+                n_repeats=n_repeats,
+            )
+            signal_base = assemble_decision_frame(evaluation)
+            reliability = public_reliability_dict(evaluation)
+            wf_mean = float(evaluation.oos_metrics["accuracy"])
+            wf_folds = [float(x) for x in evaluation.folds["accuracy"].tolist()]
+            decision_proba = signal_base["Proba"].to_numpy(dtype=float)
+        except ValueError as exc:
+            signal_base = test_df
+            decision_proba = tech_result.test_proba
+            reliability = holdout_reliability_dict(str(exc))
         signals_df = attach_technical_trend_signals(
-            test_df,
-            tech_result.test_proba,
+            signal_base,
+            decision_proba,
             buy_threshold=cfg.buy_threshold,
             sell_threshold=cfg.sell_threshold,
         )
@@ -223,6 +261,7 @@ def _run_four_model_pipeline_with_data(
                 "feature_names": list(technical_feature_cols),
                 "strategy_mode": strategy_key,
                 "ticker": ticker,
+                "reliability": reliability,
             }
     elif strategy_key == STRATEGY_MOMENTUM:
         # Trend-following sleeve: model proba × structural trend/RSI gates (no macro/micro fusion).
@@ -319,6 +358,7 @@ def _run_four_model_pipeline_with_data(
         "strategy_mode": strategy_key,
         "trained_model": tech_result.model,
         "feature_names": list(technical_feature_cols),
+        "reliability": reliability,
         "latest": {
             "signal": str(latest_row["Signal"]),
             "proba": float(latest_row["Proba"]),
@@ -756,12 +796,16 @@ def run_portfolio_four_model_pipeline(
             signals_by_ticker[t] = gated
             trades = int(gated["Signal"].isin(["BUY", "SELL"]).sum())
             active_days = max(1, int(pd.to_datetime(gated["Date"]).dt.date.nunique())) if len(gated) else 1
+            rel = partial.get("reliability") or {}
+            oos_metrics = rel.get("oos_metrics") or {}
             rows.append(
                 {
                     "Ticker": t,
                     "Latest_Signal": str(gated.iloc[-1]["Signal"]),
                     "Latest_Proba": float(gated.iloc[-1]["Proba"]),
                     "Test_Accuracy": float(partial["technical_test_accuracy"]),
+                    "OOS_Accuracy": float(oos_metrics.get("accuracy", float("nan"))),
+                    "Probability_Source": str(rel.get("decision_method", "raw")),
                     "Trades_Per_Day": float(trades / active_days),
                 }
             )
@@ -805,6 +849,7 @@ def run_portfolio_four_model_pipeline(
         "table_df": table_df,
         "portfolio_backtest": portfolio_backtest,
         "signals_by_ticker": signals_by_ticker,
+        "evaluation": "walk_forward" if TECHNICAL_MODE else "holdout",
     }
 
 
