@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { api } from './api'
+import { api, apiBase } from './api'
 import { Badge, Metric, Panel, Table, money, pct } from './components'
 
 function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = []) {
@@ -563,6 +563,7 @@ export function ExplainPage() {
 
 export function SettingsPage() {
   const { data, error, loading, reload } = useLoad(() => api.diagnostics())
+  const health = useLoad(() => api.health())
   if (loading) return <p className="muted">Loading diagnostics…</p>
   if (error) return <div className="error">{error}</div>
   if (!data) return null
@@ -572,12 +573,31 @@ export function SettingsPage() {
         <h2>Settings / Diagnostics</h2>
         <p>Environment checklist and storage paths. Secrets are never displayed.</p>
       </div>
+      <Panel title="API connectivity">
+        <div className="grid">
+          <Metric label="Browser API base" value={apiBase()} />
+          <Metric label="Health" value={String((health.data as Record<string, unknown> | null)?.status ?? (health.error ? 'error' : '…'))} />
+          <Metric label="Broker execution" value="disabled" />
+          <Metric label="Secrets exposed" value={String(data.secrets_exposed ?? false)} />
+        </div>
+        {health.error && <div className="error">{health.error}</div>}
+        <p className="muted">{String((health.data as Record<string, unknown> | null)?.live_feed_verification ?? '')}</p>
+      </Panel>
       <Panel title="Environment">
         <Table rows={(data.environment as Record<string, unknown>[]) ?? []} />
       </Panel>
-      <Panel title="Stores">
+      <Panel title="Stores / runtime">
         <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>
-          {JSON.stringify({ market_store: data.market_store, paper_store: data.paper_store }, null, 2)}
+          {JSON.stringify(
+            {
+              runtime: data.runtime,
+              market_store: data.market_store,
+              paper_store: data.paper_store,
+              ai_reasoning: data.ai_reasoning,
+            },
+            null,
+            2,
+          )}
         </pre>
       </Panel>
       <p><Badge label={data.broker_execution_enabled ? 'LIVE EXECUTION' : 'NO BROKER EXECUTION'} /></p>

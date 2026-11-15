@@ -1,13 +1,33 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
+export function apiBase(): string {
+  return API_BASE || '(same-origin / Vite proxy)'
+}
+
+function formatDetail(detail: unknown): string {
+  if (detail == null) return 'Request failed'
+  if (typeof detail === 'string') return detail
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+      ...init,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new Error(`Network error talking to API ${apiBase()}: ${message}`)
+  }
   const text = await response.text()
   let body: unknown = null
   if (text) {
@@ -20,8 +40,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const detail =
       typeof body === 'object' && body && 'detail' in body
-        ? JSON.stringify((body as { detail: unknown }).detail)
-        : response.statusText
+        ? formatDetail((body as { detail: unknown }).detail)
+        : response.statusText || `HTTP ${response.status}`
     throw new Error(detail)
   }
   return body as T
