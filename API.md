@@ -44,6 +44,12 @@ Vite proxies `/api` to `http://127.0.0.1:8000`. For Vercel, set `VITE_API_BASE_U
 | POST | `/api/explain/decision` | Explain latest research decision |
 | GET | `/api/explain/last` | Cached explanation |
 | POST | `/api/explain/risk-block` | Explain a risk rejection |
+| GET | `/api/analytics/status` | Analytics module status |
+| POST | `/api/analytics/regimes` | Causal bull/bear/sideways labels from stored candles |
+| POST | `/api/analytics/portfolio` | Allocation, sector exposure, concentration |
+| POST | `/api/analytics/compare` | Compare strategies on net returns after costs |
+| POST | `/api/analytics/robustness` | Walk-forward fold consistency (diagnostic) |
+| GET | `/api/analytics/report` | Combined research analytics report |
 
 Demo responses set `demo_labelled: true` and use account id `demo:academic`.
 
@@ -58,6 +64,16 @@ Demo responses set `demo_labelled: true` and use account id `demo:academic`.
 - API keys are never returned to the frontend.
 
 Limitations: sector context is included only when the caller supplies it; missing indicators stay `unavailable` and are never invented. Model probability is explicitly not treated as probability of profit.
+
+## Strategy analytics (M7)
+
+`strategy_research/` adds regime classification, regime-conditioned performance, portfolio analytics and walk-forward robustness on top of the existing backtest engine.
+
+- Regimes use trailing returns only; return attribution uses `regime_for_return` (prior end-of-day label) to avoid same-bar lookahead.
+- Strategy comparison ranks by **net** return after the existing transaction-cost model.
+- Robustness summarises existing walk-forward folds and does **not** retune parameters on those folds.
+- Insufficient samples / missing candles are labelled `insufficient_data`.
+- Previously reviewed scrape/order repos were not integrated; analytics stay on our stored data + backtests.
 
 ## Deploy notes
 

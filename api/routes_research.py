@@ -35,6 +35,14 @@ def research_run(body: ResearchRunBody) -> dict:
     summary = summarize_research(result)
     _LAST_RESULT["summary"] = summary
     _LAST_RESULT["ticker"] = ticker
+    # Keep raw pipeline objects in-process for analytics (not returned on the wire).
+    _LAST_RESULT["raw"] = {
+        "backtest": result.get("backtest"),
+        "reliability": result.get("reliability"),
+        "walk_forward_fold_scores": result.get("walk_forward_fold_scores"),
+        "prices": result.get("prices"),
+        "test_df": result.get("test_df"),
+    }
     try:
         from api.routes_explain import _LAST_EXPLANATION
         from reasoning.service import ExplainRequest, explain_decision

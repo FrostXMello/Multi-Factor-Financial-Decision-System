@@ -18,12 +18,14 @@ def client(tmp_path, monkeypatch):
     monkeypatch.delenv("BROKER_ACCESS_TOKEN", raising=False)
 
     from api.deps import clear_store_caches
+    from api.routes_analytics import clear_analytics_cache
     from api.routes_explain import clear_explain_cache
     from api.routes_research import clear_research_cache
 
     clear_store_caches()
     clear_research_cache()
     clear_explain_cache()
+    clear_analytics_cache()
     monkeypatch.delenv("AI_REASONING_API_KEY", raising=False)
     monkeypatch.delenv("AI_REASONING_BASE_URL", raising=False)
 
@@ -35,6 +37,7 @@ def client(tmp_path, monkeypatch):
     clear_store_caches()
     clear_research_cache()
     clear_explain_cache()
+    clear_analytics_cache()
 
 
 def test_health_and_overview_disable_broker_execution(client):
@@ -160,4 +163,55 @@ def test_research_last_empty_and_run_monkeypatched(client, monkeypatch):
     )
     assert blocked.status_code == 200
     assert blocked.json()["decision"]["risk_blocked"] is True
+
+
+def test_analytics_regimes_portfolio_and_robustness(client, tmp_path):
+    import pandas as pd
+
+    from market_data.store import MarketStore
+
+    store = MarketStore(tmp_path / "market.sqlite")
+    dates = pd.bdate_range("2023-01-02", periods=90)
+    close = pd.Series(range(90), dtype=float) + 100.0
+    store.upsert_candles(
+        pd.DataFrame(
+            {
+                "Date": dates,
+                "Open": close,
+                "High": close + 1,
+                "Low": close - 1,
+                "Close": close,
+                "Volume": 1000,
+            }
+        ),
+        symbol="RELIANCE.NS",
+        timeframe="1d",
+        provider_id="yfinance",
+    )
+    # Point API store cache at the same temp DB already set by MARKET_DATA_DB.
+    regimes = client.post("/api/analytics/regimes", json={"symbol": "RELIANCE.NS", "lookback": 20})
+    assert regimes.status_code == 200
+    body = regimes.json()
+    assert body["lookahead_safe"] is True
+    assert body["latest"]["regime_end_of_day"] in {"bull", "bear", "sideways", "insufficient_data"}
+
+    portfolio = client.post(
+        "/api/analytics/portfolio",
+        json={
+            "positions": [
+                {"symbol": "TCS.NS", "quantity": 2, "mark": 100},
+                {"symbol": "HDFCBANK.NS", "quantity": 2, "mark": 100},
+            ],
+            "cash": 100,
+        },
+    )
+    assert portfolio.status_code == 200
+    assert portfolio.json()["available"] is True
+
+    robust = client.post("/api/analytics/robustness", json={"fold_scores": [0.55, 0.6, 0.58, 0.62]})
+    assert robust.status_code == 200
+    assert robust.json()["available"] is True
+
+    status = client.get("/api/analytics/status").json()
+    assert status["external_repos_integrated"] == []
 

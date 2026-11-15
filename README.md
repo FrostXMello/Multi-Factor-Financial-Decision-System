@@ -188,6 +188,10 @@ See [`API.md`](API.md) for endpoints, Vercel notes (`VITE_API_BASE_URL`), and de
 
 `reasoning/` explains BUY / SELL / HOLD from structured research and risk outputs. An optional OpenAI-compatible provider can polish narratives when `AI_REASONING_API_KEY` and `AI_REASONING_BASE_URL` are set; otherwise a deterministic explanation is returned. The assistant cannot invent missing market numbers and cannot override signals, risk gates, or orders. The React **AI Explainability** page shows summaries, factors, warnings, confidence interpretation, and supporting data from the API.
 
+## Strategy research & portfolio analytics (M7)
+
+`strategy_research/` classifies bull / bear / sideways regimes from trailing price history (no lookahead into future bars), evaluates strategy returns by causal regime, and reports portfolio allocation, sector exposure, concentration (HHI), volatility, Sharpe/Sortino and drawdown when equity history exists. Strategy comparison uses **net** returns after the existing cost model. Walk-forward robustness summarises fold scores without retuning on the evaluation folds. The React **Strategy Analytics** page and `/api/analytics/*` endpoints expose these reports. Missing data stays labelled; results are not fabricated. Prior market-data scrape repositories were reviewed again and not integrated.
+
 ## Notes
 
 - This project intentionally combines Macro + Micro + Fusion + Optimizer + Intraday layers; this improves flexibility but can increase over-engineering risk if not validated with strict out-of-sample testing.
