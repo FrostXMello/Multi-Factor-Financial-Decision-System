@@ -38,6 +38,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
   if (!response.ok) {
+    if (response.status === 405 || response.status === 404) {
+      throw new Error(
+        `API ${response.status} on ${path}. Start FastAPI locally with ` +
+          `\`uvicorn api.main:app --port 8000\` (Vite proxies /api). ` +
+          `On Vercel set VITE_API_BASE_URL to that API origin — the static site cannot run simulations alone.`,
+      )
+    }
     const detail =
       typeof body === 'object' && body && 'detail' in body
         ? formatDetail((body as { detail: unknown }).detail)

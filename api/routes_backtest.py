@@ -308,11 +308,83 @@ def backtest_run(body: BacktestRunBody) -> dict:
 
 class SimulateStrategiesBody(BaseModel):
     ticker: str = Field(default="RELIANCE.NS", min_length=1)
-    start: Optional[str] = None
-    end: Optional[str] = None
+    start: str = Field(..., min_length=8, description="Inclusive simulation start YYYY-MM-DD")
+    end: str = Field(..., min_length=8, description="Inclusive simulation end YYYY-MM-DD")
     initial_capital: float = Field(default=100_000.0, gt=0, le=100_000_000)
     cost_segment: str = Field(default="equity_delivery")
     save: bool = True
+
+
+def _clip_raw_to_window(raw: dict[str, Any], start: str, end: str) -> dict[str, Any]:
+    """Keep model lookback intact, but report only bars/trades inside [start, end]."""
+    import pandas as pd
+
+    start_ts = pd.Timestamp(start)
+    end_ts = pd.Timestamp(end)
+    if end_ts < start_ts:
+        raise ValueError("end date must be on or after start date")
+
+    out = dict(raw)
+    test_df = raw.get("test_df")
+    orders: list[dict[str, Any]] = []
+    if isinstance(test_df, pd.DataFrame) and not test_df.empty and "Date" in test_df.columns:
+        dates = pd.to_datetime(test_df["Date"])
+        mask = (dates >= start_ts) & (dates <= end_ts)
+        clipped = test_df.loc[mask].reset_index(drop=True)
+        if clipped.empty:
+            raise ValueError(f"No signal bars inside {start} .. {end}")
+        out["test_df"] = clipped
+        if "Signal" in clipped.columns:
+            out["trades"] = int(clipped["Signal"].isin(["BUY", "SELL"]).sum())
+            for _, row in clipped.iterrows():
+                side = str(row.get("Signal", "HOLD")).upper()
+                if side not in {"BUY", "SELL"}:
+                    continue
+                orders.append(
+                    {
+                        "date": jsonable(row.get("Date")),
+                        "side": side,
+                        "price": jsonable(row.get("Close")),
+                        "proba": jsonable(row.get("Proba")),
+                        "risk_score": jsonable(row.get("RiskScore")),
+                        "no_trade": jsonable(bool(row.get("NoTrade"))) if "NoTrade" in clipped.columns else False,
+                    }
+                )
+        out["orders"] = orders
+
+    backtest = dict(raw.get("backtest") or {})
+    equity = backtest.get("equity_curve")
+    if isinstance(equity, pd.Series) and not equity.empty:
+        eq = equity.copy()
+        eq.index = pd.to_datetime(eq.index)
+        eq = eq[(eq.index >= start_ts) & (eq.index <= end_ts)]
+        if not eq.empty:
+            backtest["equity_curve"] = eq
+            initial = float(eq.iloc[0])
+            final = float(eq.iloc[-1])
+            backtest["final_portfolio_value"] = final
+            backtest["total_return_pct"] = ((final / initial) - 1.0) * 100.0 if initial else float("nan")
+            peak = eq.cummax()
+            dd = (eq / peak) - 1.0
+            backtest["max_drawdown_pct"] = float(dd.min() * 100.0)
+            backtest["max_drawdown"] = float(dd.min() * 100.0)
+
+    trades_df = backtest.get("trades_df")
+    if isinstance(trades_df, pd.DataFrame) and not trades_df.empty:
+        td = trades_df.copy()
+        mask = pd.Series(False, index=td.index)
+        if "ExitDate" in td.columns:
+            exit_dates = pd.to_datetime(td["ExitDate"])
+            mask |= (exit_dates >= start_ts) & (exit_dates <= end_ts)
+        if "EntryDate" in td.columns:
+            entry_dates = pd.to_datetime(td["EntryDate"])
+            mask |= (entry_dates >= start_ts) & (entry_dates <= end_ts)
+        backtest["trades_df"] = td.loc[mask].reset_index(drop=True)
+
+    out["backtest"] = backtest
+    out["window"] = {"start": start, "end": end, "blocked_outside_window": True}
+    out["orders"] = out.get("orders") or orders
+    return out
 
 
 @router.post("/simulate-strategies")
@@ -321,8 +393,24 @@ def backtest_simulate_strategies(body: SimulateStrategiesBody) -> dict:
     Run the five curated strategy sleeves on one ticker and explain the best setup.
 
     Ranking uses a predeclared score. This is not parameter search on test folds.
+    Results are clipped strictly to [start, end]; earlier history is lookback only.
     """
+    import pandas as pd
+
     ticker = body.ticker.strip().upper()
+    try:
+        start_ts = pd.Timestamp(body.start)
+        end_ts = pd.Timestamp(body.end)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid start/end dates: {exc}") from exc
+    if end_ts < start_ts:
+        raise HTTPException(status_code=400, detail="end must be on or after start")
+
+    # Warm-up lookback so MA50 / model features exist; reporting stays inside the window.
+    train_start = (start_ts - pd.Timedelta(days=550)).date().isoformat()
+    report_start = start_ts.date().isoformat()
+    report_end = end_ts.date().isoformat()
+
     cost_cfg = cost_config_for_segment(body.cost_segment)
     results: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -338,8 +426,27 @@ def backtest_simulate_strategies(body: SimulateStrategiesBody) -> dict:
             manual_overrides=True,
         )
         try:
-            raw = run_four_model_pipeline(ticker, cfg, start=body.start, end=body.end)
-            summary = dict(summarize_research({**raw, "ticker": ticker}))
+            raw = run_four_model_pipeline(ticker, cfg, start=train_start, end=report_end)
+            clipped = _clip_raw_to_window(raw, report_start, report_end)
+            summary = dict(summarize_research({**clipped, "ticker": ticker}))
+            # Prefer full-window equity / trades for the UI (not just tails).
+            backtest = clipped.get("backtest") or {}
+            equity = backtest.get("equity_curve")
+            if equity is not None:
+                try:
+                    if isinstance(equity, pd.Series) and not equity.empty:
+                        summary["equity_curve"] = [
+                            {"date": jsonable(idx), "equity": jsonable(val)} for idx, val in equity.items()
+                        ]
+                        summary["equity_tail"] = summary["equity_curve"]
+                except Exception:
+                    pass
+            trades_df = backtest.get("trades_df")
+            if trades_df is not None:
+                summary["trades_tail"] = jsonable(trades_df)
+            summary["orders"] = clipped.get("orders") or []
+            summary["window"] = clipped.get("window")
+
             metrics = dict(summary.get("metrics") or {})
             latest = dict(summary.get("latest") or {})
             score = _rank_score(metrics)
@@ -358,7 +465,10 @@ def backtest_simulate_strategies(body: SimulateStrategiesBody) -> dict:
                 "latest": latest,
                 "reliability": summary.get("reliability"),
                 "trades_tail": summary.get("trades_tail"),
-                "equity_tail": summary.get("equity_tail"),
+                "equity_tail": summary.get("equity_tail") or summary.get("equity_curve"),
+                "equity_curve": summary.get("equity_curve"),
+                "orders": summary.get("orders") or [],
+                "window": summary.get("window"),
                 "disclaimer": summary.get("disclaimer"),
             }
             if body.save:
@@ -372,8 +482,9 @@ def backtest_simulate_strategies(body: SimulateStrategiesBody) -> dict:
                         "buy_threshold": preset["buy_threshold"],
                         "sell_threshold": preset["sell_threshold"],
                         "initial_capital": body.initial_capital,
-                        "start": body.start,
-                        "end": body.end,
+                        "start": report_start,
+                        "end": report_end,
+                        "train_lookback_start": train_start,
                     },
                     summary={**summary, "strategy_id": preset["id"], "rank_score": score},
                     freshness="historical",
@@ -488,9 +599,16 @@ def backtest_simulate_strategies(body: SimulateStrategiesBody) -> dict:
         "freshness": "historical",
         "data_mode": "HISTORICAL",
         "broker_execution": False,
+        "window": {
+            "start": report_start,
+            "end": report_end,
+            "train_lookback_start": train_start,
+            "blocked_outside_window": True,
+        },
         "ranking_note": (
             "Strategies ranked by predeclared score: 0.4·Sharpe + 0.3·net return "
-            "+ 0.2·(1−|drawdown|) + 0.1·win rate. Not optimized on the test fold."
+            "+ 0.2·(1−|drawdown|) + 0.1·win rate. Not optimized on the test fold. "
+            f"Buy/sell orders and metrics are limited to {report_start} .. {report_end}."
         ),
         "strategies": results,
         "errors": errors,

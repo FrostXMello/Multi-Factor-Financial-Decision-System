@@ -102,17 +102,30 @@ def test_simulate_strategies_ranks_five_and_explains(client, monkeypatch):
         }
 
     monkeypatch.setattr(rb, "run_four_model_pipeline", fake_run)
-    body = client.post(
+    missing = client.post(
         "/api/backtest/simulate-strategies",
         json={"ticker": "RELIANCE.NS", "save": False},
+    )
+    assert missing.status_code == 422
+
+    body = client.post(
+        "/api/backtest/simulate-strategies",
+        json={
+            "ticker": "RELIANCE.NS",
+            "start": "2024-01-01",
+            "end": "2024-12-31",
+            "save": False,
+        },
     ).json()
     assert body["broker_execution"] is False
     assert body["freshness"] == "historical"
+    assert body["window"]["blocked_outside_window"] is True
     assert len(body["strategies"]) == 5
     assert body["strategies"][0]["rank"] == 1
     assert body["buy_analysis"]["available"] is True
     assert body["buy_analysis"]["latest_signal"] == "BUY"
     assert "why_buy" in body["buy_analysis"]
+    assert "orders" in body["strategies"][0]
 
 
 def test_scan_store_persists_manual_result(client, monkeypatch):
