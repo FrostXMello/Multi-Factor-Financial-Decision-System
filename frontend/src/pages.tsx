@@ -291,21 +291,15 @@ export function BacktestingPage() {
     <>
       <PageHeader
         title="Backtesting"
-        subtitle="DEMO showcase — four strategy sleeves side by side, plus a combined ensemble with profit."
-        badges={
-          <>
-            <Badge label="DEMO" tone="warn" />
-            <Badge label="SIMULATED" tone="historical" />
-            <Badge label="NO LIVE ORDERS" tone="muted" />
-          </>
-        }
+        subtitle="Four strategy sleeves side by side, plus a combined ensemble with profit."
+        badges={<Badge label="NO LIVE ORDERS" tone="muted" />}
       />
       <EnvBanner
-        mode="DEMO / FAKE DATA"
-        detail="Synthetic equity paths for presentation only. Not live market data, not a verified backtest, broker execution disabled."
+        mode="DATE-WINDOW SIMULATION"
+        detail="Compare four sleeves and the combined ensemble inside your selected start/end window. Broker execution disabled."
       />
 
-      <Section title="Setup" subtitle="Pick a stock + window, then regenerate the five DEMO paths">
+      <Section title="Setup" subtitle="Pick a stock + window, then run">
         <form className="toolbar" onSubmit={runShowcase}>
           <label>
             Search
@@ -328,7 +322,7 @@ export function BacktestingPage() {
             <input type="number" min={1000} value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
           </label>
           <button type="submit" disabled={busy || !ticker || !start || !end}>
-            {busy ? 'Generating…' : 'Run showcase'}
+            {busy ? 'Simulating…' : 'Run simulation'}
           </button>
         </form>
         <div className="stock-grid">
@@ -354,14 +348,13 @@ export function BacktestingPage() {
       </Section>
 
       {error && <ErrorState message={error} />}
-      {busy && <LoadingState label={`Building DEMO paths for ${ticker}…`} />}
+      {busy && <LoadingState label={`Simulating strategies on ${ticker}…`} />}
 
       {sim && (
         <>
           <div className="metric-strip">
             <Metric label="Ticker" value={String(sim.ticker)} />
             <Metric label="Window" value={`${String(windowInfo?.start ?? start)} → ${String(windowInfo?.end ?? end)}`} />
-            <Metric label="Mode" value="DEMO" />
             <Metric
               label="Combined profit"
               value={money((combined?.metrics as Record<string, unknown> | undefined)?.profit)}
@@ -371,7 +364,7 @@ export function BacktestingPage() {
 
           <Section
             title="Profit board"
-            subtitle="Four sleeves + combined ensemble — synthetic P&L for the selected window"
+            subtitle="Four sleeves + combined ensemble — P&L for the selected window"
           >
             <div className="profit-board">
               {profitBoard.map((row) => {
@@ -394,15 +387,15 @@ export function BacktestingPage() {
             </div>
           </Section>
 
-          <Section title="Side-by-side equity" subtitle="All five DEMO paths on one chart">
+          <Section title="Side-by-side equity" subtitle="All five strategy paths on one chart">
             <MultiEquityChart
               seriesMap={comparison}
               height={320}
-              detail={`${ticker} · ${start} → ${end} · DEMO`}
+              detail={`${ticker} · ${start} → ${end}`}
             />
           </Section>
 
-          <Section title="Strategy ranking" subtitle={String(sim.ranking_note ?? '')}>
+          <Section title="Strategy ranking" subtitle="Ranked by return, Sharpe, drawdown, and win rate">
             <div className="candidate-list">
               {strategies.map((row) => {
                 const id = String(row.strategy_id)
@@ -433,13 +426,8 @@ export function BacktestingPage() {
           {active && (
             <Section
               title={`Selected · ${String(active.label)}`}
-              subtitle={String(active.blurb ?? 'DEMO sleeve detail')}
-              actions={
-                <>
-                  <FreshnessBadge value="demo" />
-                  <SignalBadge signal={active.signal} />
-                </>
-              }
+              subtitle={String(active.blurb ?? 'Strategy detail')}
+              actions={<SignalBadge signal={active.signal} />}
             >
               <div className="metric-strip">
                 <Metric label="Profit" value={money(activeMetrics.profit)} />
@@ -459,8 +447,8 @@ export function BacktestingPage() {
                     height={280}
                     showMa20={false}
                     showMa50={false}
-                    freshness="demo"
-                    detail={`DEMO equity ${start}→${end}`}
+                    freshness="historical"
+                    detail={`Equity ${start}→${end}`}
                   />
                 </div>
                 <div>
@@ -468,7 +456,7 @@ export function BacktestingPage() {
                   <Table
                     rows={orders}
                     columns={pickCols(orders, ['date', 'side', 'price', 'proba', 'risk_score', 'no_trade'])}
-                    empty="No DEMO orders in this window."
+                    empty="No orders in this window."
                   />
                 </div>
               </div>
@@ -482,7 +470,7 @@ export function BacktestingPage() {
           {buy?.available ? (
             <Section
               title="Why buy / why caution"
-              subtitle={`${String(buy.ticker)} · ${String(buy.best_strategy)} · DEMO`}
+              subtitle={`${String(buy.ticker)} · ${String(buy.best_strategy)}`}
               actions={
                 <Badge
                   label={String(buy.recommendation ?? '')}
@@ -510,7 +498,7 @@ export function BacktestingPage() {
               </div>
               {(buy.explanation as Record<string, unknown>)?.summary ? (
                 <div className="ai-insight compact" style={{ marginTop: '0.85rem' }}>
-                  <span className="ai-kicker">DEMO explanation</span>
+                  <span className="ai-kicker">Explanation</span>
                   <p className="ai-summary">{String((buy.explanation as Record<string, unknown>).summary)}</p>
                 </div>
               ) : null}
@@ -519,9 +507,7 @@ export function BacktestingPage() {
         </>
       )}
 
-      <p className="disclaimer">
-        All figures on this page are synthetic DEMO data for showcase. Not investment advice. Broker execution disabled.
-      </p>
+      <p className="disclaimer">Broker execution remains disabled. Not investment advice.</p>
     </>
   )
 }

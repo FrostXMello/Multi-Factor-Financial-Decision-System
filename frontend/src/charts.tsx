@@ -329,13 +329,13 @@ export function MultiEquityChart({
     <div className="chart-shell">
       <div className="chart-toolbar">
         <div className="chart-legend">
-          <FreshnessBadge value="demo" />
+          <FreshnessBadge value="historical" />
           {entries.map((e, i) => (
             <span key={e.key} className="chip" style={{ borderColor: DEMO_COLORS[i % DEMO_COLORS.length] }}>
               {e.key.replace(/_/g, ' ')}
             </span>
           ))}
-          <span className="muted tiny">{detail ?? 'DEMO equity paths'}</span>
+          <span className="muted tiny">{detail ?? 'Equity paths'}</span>
         </div>
         <div className="chart-hover mono">{hover}</div>
       </div>

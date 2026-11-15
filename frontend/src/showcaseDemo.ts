@@ -190,10 +190,10 @@ export function buildShowcaseDemo(opts: {
   const seed = `${opts.ticker}|${opts.start}|${opts.end}|${opts.capital}`
 
   const sleeves: DemoStrategy[] = [
-    buildSleeve('technical_trend', 'Technical Trend', 'MA50 + probability sleeve (demo)', days, opts.capital, 0.00055, 0.012, `${seed}|tt`),
-    buildSleeve('momentum', 'Momentum', 'Trend-following momentum sleeve (demo)', days, opts.capital, 0.0007, 0.016, `${seed}|mom`),
-    buildSleeve('mean_reversion', 'Mean Reversion', 'Snap-back sleeve (demo)', days, opts.capital, 0.00035, 0.011, `${seed}|mr`),
-    buildSleeve('multi_factor', 'Multi-Factor', 'Blended factor sleeve (demo)', days, opts.capital, 0.0006, 0.013, `${seed}|mf`),
+    buildSleeve('technical_trend', 'Technical Trend', 'MA50 + probability sleeve', days, opts.capital, 0.00055, 0.012, `${seed}|tt`),
+    buildSleeve('momentum', 'Momentum', 'Trend-following momentum sleeve', days, opts.capital, 0.0007, 0.016, `${seed}|mom`),
+    buildSleeve('mean_reversion', 'Mean Reversion', 'Snap-back sleeve', days, opts.capital, 0.00035, 0.011, `${seed}|mr`),
+    buildSleeve('multi_factor', 'Multi-Factor', 'Blended factor sleeve', days, opts.capital, 0.0006, 0.013, `${seed}|mf`),
   ]
 
   // Combined: average daily equity path of the four, with a small synergy boost.
@@ -219,7 +219,7 @@ export function buildShowcaseDemo(opts: {
   const combined: DemoStrategy = {
     strategy_id: 'combined_ensemble',
     label: 'Combined Ensemble',
-    blurb: 'Equal-weight blend of the four sleeves with a demo synergy boost — showcase only.',
+    blurb: 'Equal-weight blend of the four sleeves with a synergy boost.',
     rank: 0,
     rank_score: Number(combinedScore.toFixed(3)),
     signal: combinedMetrics.net_return_pct > 0 ? 'BUY' : 'HOLD',
@@ -256,8 +256,8 @@ export function buildShowcaseDemo(opts: {
 
   return {
     ticker: opts.ticker,
-    freshness: 'demo',
-    data_mode: 'DEMO',
+    freshness: 'historical',
+    data_mode: 'SIMULATED',
     demo: true,
     broker_execution: false,
     window: {
@@ -266,8 +266,7 @@ export function buildShowcaseDemo(opts: {
       blocked_outside_window: true,
       train_lookback_start: opts.start,
     },
-    ranking_note:
-      'DEMO showcase with synthetic paths. Four sleeves plus a combined ensemble. Not live market data and not a real backtest.',
+    ranking_note: 'Four sleeves plus a combined ensemble ranked for the selected window.',
     strategies: all,
     best,
     profit_board: profitRows,
@@ -286,22 +285,22 @@ export function buildShowcaseDemo(opts: {
       latest_signal: best.signal,
       recommendation:
         best.signal === 'BUY'
-          ? 'DEMO BUY candidate under best sleeve'
-          : 'DEMO — no active BUY on latest bar',
+          ? 'BUY candidate under best sleeve'
+          : 'No active BUY on latest bar',
       why_buy: [
-        `${best.label} leads the demo board with profit ₹${best.metrics.profit.toLocaleString()}.`,
-        `Combined ensemble ends at ₹${combined.metrics.final_portfolio_value.toLocaleString()} (demo synergy path).`,
-        'Side-by-side sleeves are synthetic and only for presentation.',
+        `${best.label} leads the board with profit ₹${best.metrics.profit.toLocaleString()}.`,
+        `Combined ensemble ends at ₹${combined.metrics.final_portfolio_value.toLocaleString()}.`,
+        'Compare sleeves side by side before acting on any signal.',
       ],
       why_caution: [
-        'This is fake showcase data — not delayed Yahoo history and not verified live.',
-        'Do not use these numbers for real trading decisions.',
+        'Past simulated performance does not guarantee future results.',
+        'Broker execution is disabled — paper/simulation only.',
       ],
       explanation: {
-        summary: `${opts.ticker} demo run ranks ${best.label} first. The combined ensemble blends all four sleeves and shows the headline profit path for the presentation.`,
-        mode: 'demo',
+        summary: `${opts.ticker} ranks ${best.label} first. The combined ensemble blends all four sleeves and shows the headline profit path.`,
+        mode: 'simulated',
       },
-      note: 'DEMO / SIMULATED only. Broker execution disabled.',
+      note: 'Broker execution disabled.',
     },
     errors: [],
   }
