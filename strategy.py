@@ -117,47 +117,37 @@ def prob_to_signal_quantile(
     *,
     buy_quantile: float = 0.7,
     sell_quantile: float = 0.3,
+    min_history: int = 20,
 ) -> np.ndarray:
     """
-    Quantile-based signal mapping.
+    Expanding-window quantile map. Bar t uses only probabilities up to t.
 
-    Instead of using fixed probability cutoffs, we compute cutoffs from the
-    predicted probability distribution for the test period:
-    - BUY if proba >= q_buy
-    - SELL if proba <= q_sell
-    - otherwise HOLD
-
-    This is useful when a model's probabilities are "compressed" (common for
-    Logistic Regression), causing fixed thresholds to produce all HOLD.
+    A full-sample quantile would let later test bars change earlier signals.
     """
     if not (0 < sell_quantile < buy_quantile < 1):
         raise ValueError("Require 0 < sell_quantile < buy_quantile < 1")
 
-    n = len(proba_buy)
+    proba = np.asarray(proba_buy, dtype=float)
+    n = len(proba)
     if n == 0:
         return np.array([], dtype=object)
 
-    # Rank-based quantile mapping is robust when probabilities are flat/tied.
-    n_buy = max(1, int(round((1.0 - buy_quantile) * n)))
-    n_sell = max(1, int(round(sell_quantile * n)))
-    if n_buy + n_sell > n:
-        overflow = n_buy + n_sell - n
-        # Trim the larger side first to preserve both directions.
-        if n_buy >= n_sell:
-            n_buy = max(1, n_buy - overflow)
-        else:
-            n_sell = max(1, n_sell - overflow)
-    if n >= 2 and n_buy + n_sell < 2:
-        n_buy = 1
-        n_sell = 1 if n >= 2 else 0
-
-    order = np.argsort(proba_buy)
-    sell_idx = order[:n_sell]
-    buy_idx = order[-n_buy:]
-
     signals = np.array(["HOLD"] * n, dtype=object)
-    signals[sell_idx] = "SELL"
-    signals[buy_idx] = "BUY"
+    history = max(2, int(min_history))
+    for i in range(n):
+        window = proba[: i + 1]
+        window = window[np.isfinite(window)]
+        if len(window) < history:
+            continue
+        hi = float(np.quantile(window, buy_quantile))
+        lo = float(np.quantile(window, sell_quantile))
+        p = float(proba[i])
+        if not np.isfinite(p):
+            continue
+        if p >= hi:
+            signals[i] = "BUY"
+        elif p <= lo:
+            signals[i] = "SELL"
     return signals
 
 

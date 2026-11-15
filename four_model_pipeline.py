@@ -178,15 +178,20 @@ def _run_four_model_pipeline_with_data(
             ),
         )
 
+    model_cfg = ModelConfig(
+        model_type=cfg.model_type,
+        random_state=42,
+        horizon_bars=int(cfg.horizon_bars),
+    )
     tech_result = train_model(
         model_df,
-        cfg=ModelConfig(model_type=cfg.model_type, random_state=42),
+        cfg=model_cfg,
         feature_cols=technical_feature_cols,
     )
     if compute_walk_forward:
         wf = walk_forward_validate(
             model_df,
-            cfg=ModelConfig(model_type=cfg.model_type, random_state=42),
+            cfg=model_cfg,
             feature_cols=technical_feature_cols,
             n_folds=5,
         )
@@ -241,8 +246,8 @@ def _run_four_model_pipeline_with_data(
             micro_cfg = MicroConfig(max_depth=3, max_iter=120) if cfg.fast_mode else MicroConfig()
             micro_proba_full = infer_micro_probability(model_df, ticker, cfg=micro_cfg)
         tech_proba_full = pd.Series(0.0, index=model_df.index, name="TechProba")
-        tech_proba_full.iloc[len(model_df) - len(tech_result.test_proba) :] = tech_result.test_proba
-        tech_proba_full = tech_proba_full.ffill().bfill()
+        tech_proba_full.iloc[-len(tech_result.test_proba) :] = tech_result.test_proba
+        tech_proba_full = tech_proba_full.ffill()
 
         feature_stack = pd.DataFrame(
             {
@@ -406,7 +411,7 @@ def optimize_four_model_pipeline(
         raise ValueError("max_evals must be >= 1")
 
     intervals = tuple(dict.fromkeys((base_cfg.base_interval,) + tuple(base_cfg.context_intervals)))
-    timeframe_data = download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=False)
+    timeframe_data = download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=True)
     prices = timeframe_data.get(base_cfg.base_interval)
     if prices is None or prices.empty:
         raise ValueError(f"No base timeframe data found for {base_cfg.base_interval}")
@@ -544,7 +549,7 @@ def optimize_portfolio_four_model_pipeline(
 
     for t in cleaned:
         try:
-            tf_data = download_multi_timeframe_data(t, intervals=intervals, auto_adjust=False)
+            tf_data = download_multi_timeframe_data(t, intervals=intervals, auto_adjust=True)
             prices = tf_data.get(base_cfg.base_interval)
             if prices is None or prices.empty:
                 continue
@@ -711,7 +716,7 @@ def run_portfolio_four_model_pipeline(
     timeframe_data_by_ticker: dict[str, dict[str, pd.DataFrame]] = {}
     for t in cleaned:
         try:
-            timeframe_data_by_ticker[t] = download_multi_timeframe_data(t, intervals=intervals, auto_adjust=False)
+            timeframe_data_by_ticker[t] = download_multi_timeframe_data(t, intervals=intervals, auto_adjust=True)
         except Exception:
             continue
 
@@ -930,5 +935,5 @@ def run_four_model_pipeline(ticker: str, cfg: FourModelConfig | None = None) -> 
     # Apply CORE overrides before download so intervals match evaluation mode (e.g. 1d+1wk, not 1m defaults).
     cfg = _effective_four_model_config(cfg)
     intervals = tuple(dict.fromkeys((cfg.base_interval,) + tuple(cfg.context_intervals)))
-    timeframe_data = download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=False)
+    timeframe_data = download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=True)
     return _run_four_model_pipeline_with_data(ticker, cfg, timeframe_data)

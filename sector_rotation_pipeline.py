@@ -27,7 +27,7 @@ def download_sector_index_ohlcv(
     if cfg is None:
         cfg = SectorRotationConfig()
     out: dict[str, pd.DataFrame] = {}
-    dc = DownloadConfig(period=period, interval="1d", auto_adjust=False)
+    dc = DownloadConfig(period=period, interval="1d", auto_adjust=True)
     for key, ysym in SECTOR_INDEX_YAHOO.items():
         try:
             df = download_stock_data(ysym, cfg=dc)
@@ -137,6 +137,7 @@ def model_training(model_df: pd.DataFrame, feat_cols: list[str], cfg: SectorRota
             model_type=str(cfg.model_type).lower(),
             min_rows=int(cfg.min_rows_model),
             random_state=42,
+            horizon_bars=int(cfg.horizon_bars),
         ),
         feature_cols=feat_cols,
     )
@@ -284,7 +285,7 @@ def prepare_stock_prices_for_backtest(
     progress_callback=None,
 ) -> dict[str, pd.DataFrame]:
     """Download OHLCV for sector stock universe (light pacing)."""
-    dc = DownloadConfig(period=period, interval="1d", auto_adjust=False)
+    dc = DownloadConfig(period=period, interval="1d", auto_adjust=True)
     out: dict[str, pd.DataFrame] = {}
     n = len(tickers)
     for i, sym in enumerate(tickers):

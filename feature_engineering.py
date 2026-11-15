@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -103,6 +102,39 @@ def _build_interval_feature_frame(df: pd.DataFrame, interval: str, cfg: MultiTim
     return out, feat_cols
 
 
+def _finalize_feature_frame(
+    merged: pd.DataFrame,
+    *,
+    feature_cols: list[str],
+    horizon_bars: int,
+    threshold: float,
+    downcast_float32: bool,
+) -> pd.DataFrame:
+    """
+    Keep every bar that has features, including the live tail.
+
+    Forward labels are attached only where the next `horizon_bars` closes exist.
+    The last `horizon_bars` rows stay scoreable and have a null Target.
+    `Next_Open` / `Next_Close` / `Next_Date` are the following session (execution),
+    not the label horizon.
+    """
+    cols = list(dict.fromkeys(feature_cols))
+    out = merged.replace([np.inf, -np.inf], np.nan).dropna(subset=cols).reset_index(drop=True)
+    out["Forward_Return"] = out["Close"].shift(-int(horizon_bars)) / out["Close"] - 1.0
+    complete = out["Forward_Return"].notna()
+    target = pd.Series(np.nan, index=out.index, dtype="float64")
+    target.loc[complete] = (out.loc[complete, "Forward_Return"] > float(threshold)).astype(float)
+    out["Target"] = target
+    out["LabelComplete"] = complete.to_numpy()
+    out["Next_Open"] = out["Open"].shift(-1)
+    out["Next_Close"] = out["Close"].shift(-1)
+    out["Next_Date"] = out["Date"].shift(-1)
+    if downcast_float32:
+        float_cols = out.select_dtypes(include=["float64", "float32"]).columns
+        out[float_cols] = out[float_cols].astype(np.float32)
+    return out
+
+
 def build_multi_timeframe_dataset(
     timeframe_data: dict[str, pd.DataFrame],
     cfg: MultiTimeframeDatasetConfig | None = None,
@@ -175,19 +207,14 @@ def build_multi_timeframe_dataset(
             )
             break  # one higher TF is enough for context; avoids feature bloat
 
-        merged["Forward_Return"] = merged["Close"].shift(-cfg.horizon_bars) / merged["Close"] - 1.0
-        merged["Target"] = (merged["Forward_Return"] > float(cfg.technical_min_forward_return)).astype(int)
-        merged["Next_Close"] = merged["Close"].shift(-cfg.horizon_bars)
-        merged["Next_Date"] = merged["Date"].shift(-cfg.horizon_bars)
-
         deduped_cols = list(dict.fromkeys(technical_cols))
-        required_for_training = deduped_cols + ["Target", "Next_Close", "Next_Date", "Forward_Return"]
-        merged = merged.replace([np.inf, -np.inf], np.nan).dropna(subset=required_for_training).reset_index(drop=True)
-
-        if cfg.downcast_float32:
-            float_cols = merged.select_dtypes(include=["float64", "float32"]).columns
-            merged[float_cols] = merged[float_cols].astype(np.float32)
-
+        merged = _finalize_feature_frame(
+            merged,
+            feature_cols=deduped_cols,
+            horizon_bars=cfg.horizon_bars,
+            threshold=float(cfg.technical_min_forward_return),
+            downcast_float32=cfg.downcast_float32,
+        )
         return merged, deduped_cols
 
     smode = normalize_strategy_mode(cfg.strategy_mode)
@@ -263,18 +290,13 @@ def build_multi_timeframe_dataset(
                 direction="backward",
             )
 
-    merged["Forward_Return"] = merged["Close"].shift(-cfg.horizon_bars) / merged["Close"] - 1.0
-    merged["Target"] = (merged["Forward_Return"] > cfg.target_return_threshold).astype(int)
-    merged["Next_Close"] = merged["Close"].shift(-cfg.horizon_bars)
-    merged["Next_Date"] = merged["Date"].shift(-cfg.horizon_bars)
-
     deduped_cols = list(dict.fromkeys(technical_cols))
-    required_for_training: Iterable[str] = deduped_cols + ["Target", "Next_Close", "Next_Date", "Forward_Return"]
-    merged = merged.replace([np.inf, -np.inf], np.nan).dropna(subset=required_for_training).reset_index(drop=True)
-
-    if cfg.downcast_float32:
-        float_cols = merged.select_dtypes(include=["float64", "float32"]).columns
-        merged[float_cols] = merged[float_cols].astype(np.float32)
-
+    merged = _finalize_feature_frame(
+        merged,
+        feature_cols=deduped_cols,
+        horizon_bars=cfg.horizon_bars,
+        threshold=float(cfg.target_return_threshold),
+        downcast_float32=cfg.downcast_float32,
+    )
     return merged, deduped_cols
 

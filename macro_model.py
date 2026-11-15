@@ -69,7 +69,7 @@ def _build_macro_features_cached(market_ticker: str, lookback_period: str, horiz
     cfg = MacroConfig(market_ticker=market_ticker, lookback_period=lookback_period, horizon_days=horizon_days)
     idx = download_stock_data(
         cfg.market_ticker,
-        DownloadConfig(period=cfg.lookback_period, interval="1d", auto_adjust=False),
+        DownloadConfig(period=cfg.lookback_period, interval="1d", auto_adjust=True),
     )
     data = idx[["Date", "Close", "Volume"]].copy()
     data["Date"] = pd.to_datetime(data["Date"])
@@ -127,5 +127,6 @@ def infer_macro_probability(
     )
     data["MacroProba"] = 1.0 / (1.0 + np.exp(-score))
     series = data.set_index(pd.to_datetime(data["Date"]))["MacroProba"].sort_index()
-    aligned = series.reindex(pd.to_datetime(signal_dates)).ffill().bfill()
+    # Forward-fill only. Back-fill would copy a later macro score onto earlier dates.
+    aligned = series.reindex(pd.to_datetime(signal_dates)).ffill().fillna(0.5)
     return aligned.reset_index(drop=True)

@@ -159,7 +159,12 @@ def layer2_model_scores(
             )
             res = train_model(
                 model_df,
-                cfg=ModelConfig(model_type="gb", min_rows=cfg.model_min_rows, random_state=42),
+                cfg=ModelConfig(
+                    model_type="gb",
+                    min_rows=cfg.model_min_rows,
+                    random_state=42,
+                    horizon_bars=int(cfg.horizon_bars),
+                ),
                 feature_cols=feat_cols,
             )
             proba = float(res.test_proba[-1])

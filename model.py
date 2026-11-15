@@ -21,6 +21,9 @@ class ModelConfig:
     random_state: int = 42
     # Minimum rows required to train (multi-layer scans may use shorter histories per name).
     min_rows: int = 200
+    # Label horizon. Training rows whose forward window reaches the test period are dropped.
+    horizon_bars: int = 1
+    embargo: bool = True
 
 
 @dataclass
@@ -30,6 +33,35 @@ class ModelResult:
     test_proba: np.ndarray  # P(Target=1) for each row in test_df
     test_pred: np.ndarray   # predicted class labels
     test_accuracy: float
+    train_end_date: pd.Timestamp | None = None
+    test_start_date: pd.Timestamp | None = None
+    horizon_bars: int = 1
+    embargo_bars: int = 0
+
+
+def purged_split_bounds(n_labeled: int, test_fraction: float, horizon_bars: int) -> tuple[int, int]:
+    """
+    Chronological split on labeled rows.
+
+    Returns `(train_end_exclusive, test_start)` in labeled-row coordinates.
+    Rows in `[train_end_exclusive, test_start)` are the embargo: their labels
+    use closes that fall inside the test window, so they are neither trained
+    on nor scored as the start of the test.
+    """
+    if n_labeled < 2:
+        raise ValueError(f"Need at least 2 labeled rows to split (got {n_labeled})")
+    if test_fraction <= 0 or test_fraction >= 1:
+        raise ValueError("test_fraction must be between 0 and 1")
+    horizon = max(0, int(horizon_bars))
+    split = int((1.0 - float(test_fraction)) * n_labeled)
+    split = min(max(split, 1), n_labeled - 1)
+    train_end = split - horizon
+    if train_end < 1:
+        raise ValueError(
+            f"Embargo of {horizon} bars leaves no training rows "
+            f"(labeled={n_labeled}, test starts at {split})."
+        )
+    return train_end, split
 
 
 # Default legacy CORE / multifactor base columns; TECHNICAL_MODE uses the list returned from
@@ -87,6 +119,27 @@ def _resolve_feature_cols(model_df: pd.DataFrame, feature_cols: list[str] | None
     return cols
 
 
+def score_features(model: object, frame: pd.DataFrame, feature_cols: list[str]) -> np.ndarray:
+    """
+    Score rows from feature columns only.
+
+    `Target` is not read. The latest bar can be scored before its forward return exists.
+    """
+    cols = list(feature_cols)
+    if not cols:
+        raise ValueError("feature_cols cannot be empty")
+    missing = [c for c in cols if c not in frame.columns]
+    if missing:
+        raise ValueError(f"frame missing columns: {missing}")
+    X = frame[cols].replace([np.inf, -np.inf], np.nan)
+    if X.isna().any(axis=None):
+        raise ValueError("score_features requires finite feature values on every row")
+    if not hasattr(model, "predict_proba"):
+        raise ValueError("model must implement predict_proba")
+    proba = model.predict_proba(X.values)[:, 1]
+    return np.asarray(proba, dtype=float)
+
+
 def train_model(
     model_df: pd.DataFrame,
     cfg: ModelConfig | None = None,
@@ -94,43 +147,55 @@ def train_model(
     feature_cols: list[str] | None = None,
 ) -> ModelResult:
     """
-    Train a classifier on historical features and return next-day probabilities
-    for the out-of-sample (test) period.
+    Train on completed labels only and score the held-out suffix, including the unlabeled tail.
 
-    Uses a chronological split (first 80% train, last 20% test) to avoid leakage.
+    Chronological split plus an embargo of `horizon_bars` so a training label cannot
+    use a close from the test period. Accuracy is computed only on rows with a Target.
     """
     if cfg is None:
         cfg = ModelConfig()
 
-    if cfg.test_fraction <= 0 or cfg.test_fraction >= 1:
-        raise ValueError("test_fraction must be between 0 and 1")
-
     train_features = _resolve_feature_cols(model_df, feature_cols)
 
     data = model_df.sort_values("Date").reset_index(drop=True)
-    n = len(data)
+    labeled_pos = np.flatnonzero(data["Target"].notna().to_numpy())
+    n_labeled = int(len(labeled_pos))
     min_rows = int(cfg.min_rows)
-    if n < min_rows:
-        raise ValueError(f"Not enough data to train (rows={n}, min_rows={min_rows}). Try another ticker.")
+    if n_labeled < min_rows:
+        raise ValueError(
+            f"Not enough completed labels to train (labeled={n_labeled}, min_rows={min_rows}). "
+            "Try another ticker."
+        )
 
-    split_idx = int((1 - cfg.test_fraction) * n)
-    train_df = data.iloc[:split_idx].copy()
-    test_df = data.iloc[split_idx:].copy()
+    horizon = int(cfg.horizon_bars) if cfg.embargo else 0
+    train_end, test_start = purged_split_bounds(n_labeled, cfg.test_fraction, horizon)
+    train_pos = labeled_pos[:train_end]
+    test_pos0 = int(labeled_pos[test_start])
+    train_df = data.iloc[train_pos].copy()
+    # Suffix from the first test label through the live tail (Target may be null).
+    test_df = data.iloc[test_pos0:].copy().reset_index(drop=True)
 
-    X_train = train_df[train_features].values
-    y_train = train_df["Target"].values
-    X_test = test_df[train_features].values
-    y_test = test_df["Target"].values
+    if len(train_df) < 30:
+        raise ValueError(
+            f"Embargo left only {len(train_df)} training rows. Reduce horizon_bars or add history."
+        )
+
+    y_train = train_df["Target"].astype(int).to_numpy()
+    if len(np.unique(y_train)) < 2:
+        raise ValueError("Training labels contain a single class after the embargo split.")
 
     set_seed(cfg.random_state)
-
     clf = _build_classifier(cfg)
+    clf.fit(train_df[train_features].values, y_train)
 
-    clf.fit(X_train, y_train)
-
-    proba = clf.predict_proba(X_test)[:, 1]
+    proba = score_features(clf, test_df, train_features)
     pred = (proba >= 0.5).astype(int)
-    acc = float(accuracy_score(y_test, pred))
+    labeled_mask = test_df["Target"].notna().to_numpy()
+    if int(labeled_mask.sum()) == 0:
+        acc = float("nan")
+    else:
+        y_test = test_df.loc[labeled_mask, "Target"].astype(int).to_numpy()
+        acc = float(accuracy_score(y_test, pred[labeled_mask]))
 
     return ModelResult(
         model=clf,
@@ -138,6 +203,10 @@ def train_model(
         test_proba=proba,
         test_pred=pred,
         test_accuracy=acc,
+        train_end_date=pd.Timestamp(train_df["Date"].iloc[-1]),
+        test_start_date=pd.Timestamp(test_df["Date"].iloc[0]),
+        horizon_bars=int(cfg.horizon_bars),
+        embargo_bars=horizon,
     )
 
 
@@ -162,7 +231,10 @@ def walk_forward_validate(
     train_features = _resolve_feature_cols(model_df, feature_cols)
 
     data = model_df.sort_values("Date").reset_index(drop=True)
-    n = len(data)
+    labeled_pos = np.flatnonzero(data["Target"].notna().to_numpy())
+    labeled = data.iloc[labeled_pos].reset_index(drop=True)
+    n = len(labeled)
+    horizon = int(cfg.horizon_bars) if cfg.embargo else 0
     min_train_size = int(n * min_train_fraction)
     if min_train_size < 100:
         raise ValueError("Not enough rows for walk-forward validation")
@@ -174,16 +246,22 @@ def walk_forward_validate(
     start_test = min_train_size
     while start_test < n and len(scores) < n_folds:
         end_test = min(n, start_test + step)
-        train_df = data.iloc[:start_test]
-        test_df = data.iloc[start_test:end_test]
+        train_end = start_test - horizon
+        if train_end < 30:
+            break
+        train_df = labeled.iloc[:train_end]
+        test_df = labeled.iloc[start_test:end_test]
         if len(test_df) < 20:
             break
+        y_train = train_df["Target"].astype(int).to_numpy()
+        if len(np.unique(y_train)) < 2:
+            start_test = end_test
+            continue
 
         clf = _build_classifier(cfg)
         X_train = train_df[train_features].values
-        y_train = train_df["Target"].values
         X_test = test_df[train_features].values
-        y_test = test_df["Target"].values
+        y_test = test_df["Target"].astype(int).to_numpy()
         clf.fit(X_train, y_train)
 
         if hasattr(clf, "predict_proba"):

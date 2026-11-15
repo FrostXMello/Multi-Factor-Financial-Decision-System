@@ -15,6 +15,7 @@ class MicroConfig:
     min_rows: int = 120
     max_depth: int = 4
     max_iter: int = 250
+    horizon_bars: int = 1
 
 
 def _safe_float(x, default: float = 0.0) -> float:
@@ -125,7 +126,9 @@ def infer_micro_probability(model_df: pd.DataFrame, ticker: str, cfg: MicroConfi
     ]
 
     split_idx = int(0.8 * len(data))
-    train_df = data.iloc[:split_idx]
+    horizon = max(0, int(cfg.horizon_bars))
+    train_end = max(1, split_idx - horizon)
+    train_df = data.iloc[:train_end]
     full_df = data
 
     clf = HistGradientBoostingClassifier(
