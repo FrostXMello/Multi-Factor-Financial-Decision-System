@@ -22,3 +22,7 @@ data/*.sqlite-wal
 data/*.sqlite-shm
 data/paper.sqlite*
 .env
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local

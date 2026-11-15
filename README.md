@@ -173,6 +173,17 @@ Offline tests live in `tests/test_paper_trading.py` and `tests/test_market_*.py`
 .venv/bin/python -m pytest -q tests
 ```
 
+## API and React terminal (M5)
+
+FastAPI wraps the same Python modules used by Streamlit. The React + TypeScript app under `frontend/` talks to those endpoints with real responses. Demo mode stays explicitly labelled. Real broker execution stays disabled.
+
+```bash
+.venv/bin/uvicorn api.main:app --reload --port 8000
+cd frontend && npm install && npm run dev
+```
+
+See [`API.md`](API.md) for endpoints, Vercel notes (`VITE_API_BASE_URL`), and deploy guidance. Streamlit (`app.py`) remains the academic single-process demo path.
+
 ## Notes
 
 - This project intentionally combines Macro + Micro + Fusion + Optimizer + Intraday layers; this improves flexibility but can increase over-engineering risk if not validated with strict out-of-sample testing.
