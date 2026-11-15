@@ -59,6 +59,9 @@ button:active { transform: translateY(1px); }
   background: rgba(9, 10, 12, 0.88);
   backdrop-filter: blur(14px);
 }
+.topbar-single {
+  grid-template-columns: 1fr auto;
+}
 
 .brand-block { display: flex; align-items: center; gap: 0.65rem; }
 .brand {

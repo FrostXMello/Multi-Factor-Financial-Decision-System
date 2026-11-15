@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { api, apiBase } from './api'
 import { CandleChart } from './charts'
 import {
@@ -7,7 +7,6 @@ import {
   EnvBanner,
   ErrorState,
   Expandable,
-  FreshnessBadge,
   LoadingState,
   Metric,
   PageHeader,
@@ -18,357 +17,6 @@ import {
   pct,
 } from './components'
 import { useLoad } from './hooks'
-
-function pickCols(rows: Record<string, unknown>[], preferred: string[]) {
-  if (!rows.length) return preferred
-  const available = new Set(Object.keys(rows[0]))
-  const cols = preferred.filter((c) => available.has(c))
-  return cols.length ? cols : Object.keys(rows[0])
-}
-
-export function LiveAnalysisPage() {
-  const status = useLoad(() => api.liveStatus())
-  const candidates = useLoad(() => api.liveCandidates())
-  const [selected, setSelected] = useState('RELIANCE.NS')
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const candles = useLoad(() => api.marketCandles(selected, 220), [selected])
-
-  const rows = useMemo(() => {
-    const list = (candidates.data?.candidates as Record<string, unknown>[]) ?? []
-    return list
-  }, [candidates.data])
-
-  const selectedRow = rows.find((r) => String(r.symbol) === selected) ?? rows[0]
-  const run = (candidates.data?.run ?? status.data?.latest_completed ?? null) as Record<string, unknown> | null
-  const locked = String(status.data?.live_feed_state ?? 'locked') !== 'open'
-
-  const scanNow = async () => {
-    setBusy(true)
-    setError(null)
-    setMessage(null)
-    try {
-      const result = await api.liveScan()
-      setMessage(`Scan ${(result.run as Record<string, unknown> | undefined)?.status ?? 'finished'}`)
-      await Promise.all([status.reload(), candidates.reload()])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <>
-      <PageHeader
-        title="Live Analysis"
-        subtitle="Continuous market scanner over the supported NSE universe — ranked BUY / SELL / HOLD."
-        badges={
-          <>
-            <Badge label={locked ? 'LIVE LOCKED' : 'LIVE VERIFIED'} tone={locked ? 'unavailable' : 'live'} />
-            <FreshnessBadge value={run?.freshness ?? 'delayed'} />
-          </>
-        }
-        actions={
-          <button type="button" onClick={() => void scanNow()} disabled={busy}>
-            {busy ? 'Scanning…' : 'Scan now'}
-          </button>
-        }
-      />
-
-      <EnvBanner
-        mode={locked ? 'SIMULATED / RESEARCH SCAN' : 'VERIFIED LIVE'}
-        detail={String(status.data?.live_feed_detail ?? status.data?.note ?? '')}
-      />
-
-      {status.error && <ErrorState message={status.error} />}
-      {candidates.error && <ErrorState message={candidates.error} />}
-      {error && <ErrorState message={error} />}
-      {message && <div className="ok">{message}</div>}
-
-      <div className="metric-strip">
-        <Metric label="Scanner" value={String(status.data?.scanner_state ?? '—')} />
-        <Metric label="Last scan" value={String(run?.finished_at ?? run?.started_at ?? '—')} />
-        <Metric label="Next scan" value={String(status.data?.next_scan_at ?? run?.next_scan_at ?? '—')} />
-        <Metric label="Source" value={String(run?.source ?? status.data?.note ? 'yfinance' : '—')} />
-        <Metric label="Data mode" value={<Badge label={String(run?.data_mode ?? 'RESEARCH')} tone="simulated" />} />
-        <Metric label="Universe" value={String(((status.data?.universe as string[]) ?? []).length)} />
-      </div>
-
-      {locked && (
-        <div className="lock-panel compact-lock">
-          <h3>Verified live tape locked</h3>
-          <p>
-            Results below are from the research scanner using delayed/historical data. They are never shown as a
-            verified live tape until a real provider passes market-session verification.
-          </p>
-        </div>
-      )}
-
-      <div className="layout-split">
-        <Section title="Strongest opportunities" subtitle="Ranked by model probability and risk gates">
-          {candidates.loading && !rows.length ? <LoadingState label="Loading candidates…" /> : null}
-          <div className="candidate-list">
-            {rows.slice(0, 12).map((row) => {
-              const symbol = String(row.symbol)
-              const active = symbol === (selectedRow ? String(selectedRow.symbol) : selected)
-              return (
-                <button
-                  key={symbol}
-                  type="button"
-                  className={`candidate-row${active ? ' active' : ''}`}
-                  onClick={() => setSelected(symbol)}
-                >
-                  <span className="mono">{symbol}</span>
-                  <SignalBadge signal={row.signal} />
-                  <span className="mono tiny">P {row.proba == null ? '—' : Number(row.proba).toFixed(3)}</span>
-                  {row.no_trade ? <Badge label="RISK BLOCK" tone="unavailable" /> : null}
-                </button>
-              )
-            })}
-            {!rows.length && <p className="muted">No stored scan yet. Click Scan now.</p>}
-          </div>
-        </Section>
-
-        <Section title="Watchlist / scan board" subtitle="Persisted across refresh">
-          <Table
-            rows={rows}
-            columns={pickCols(rows, ['symbol', 'signal', 'proba', 'rank_score', 'risk_score', 'no_trade', 'close'])}
-            empty="No candidates stored."
-          />
-        </Section>
-      </div>
-
-      <Section
-        title={selectedRow ? `${String(selectedRow.symbol)} detail` : 'Symbol detail'}
-        subtitle="Interactive chart, probability, risk decision and AI explanation"
-      >
-        {selectedRow ? (
-          <div className="metric-strip dense">
-            <Metric label="Signal" value={<SignalBadge signal={selectedRow.signal} />} />
-            <Metric label="Probability" value={selectedRow.proba == null ? '—' : Number(selectedRow.proba).toFixed(4)} />
-            <Metric label="Risk score" value={String(selectedRow.risk_score ?? '—')} />
-            <Metric label="Position size" value={String(selectedRow.position_size ?? '—')} />
-            <Metric label="NoTrade" value={String(Boolean(selectedRow.no_trade))} />
-            <Metric label="Close" value={money(selectedRow.close)} />
-          </div>
-        ) : null}
-        <CandleChart
-          rows={(candles.data?.candles as Record<string, unknown>[]) ?? []}
-          freshness={String(run?.freshness ?? 'historical')}
-          detail={`${selected} · scanner chart uses stored history`}
-        />
-        {selectedRow ? (
-          <>
-            <Expandable title="Why selected" subtitle="supporting factors & invalidation" defaultOpen>
-              <Table rows={(selectedRow.reasons as Record<string, unknown>[]) ?? []} empty="No reasons recorded." />
-              {(selectedRow.explanation as Record<string, unknown>)?.summary ? (
-                <p className="ai-summary" style={{ marginTop: '0.75rem' }}>
-                  {String((selectedRow.explanation as Record<string, unknown>).summary)}
-                </p>
-              ) : null}
-            </Expandable>
-            <Expandable title="Signal / model metrics">
-              <pre className="code-block">{JSON.stringify(selectedRow.metrics ?? {}, null, 2)}</pre>
-            </Expandable>
-          </>
-        ) : null}
-      </Section>
-
-      <AiInsight contextLabel="live analysis" />
-      <p className="disclaimer">Scanner never executes real-money trades. Broker execution remains disabled.</p>
-    </>
-  )
-}
-
-export function PortfolioPage() {
-  const [mode, setMode] = useState<'paper' | 'demo'>('paper')
-  const account = useLoad(() => api.paperAccount(mode), [mode])
-  const [symbol, setSymbol] = useState('RELIANCE.NS')
-  const [side, setSide] = useState('BUY')
-  const [qty, setQty] = useState(1)
-  const [confirm, setConfirm] = useState(false)
-  const [allowHistorical, setAllowHistorical] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [allocation, setAllocation] = useState<Record<string, unknown> | null>(null)
-  const [allocError, setAllocError] = useState<string | null>(null)
-
-  const snap = (account.data?.snapshot ?? {}) as Record<string, unknown>
-  const positions = (snap.positions as Record<string, unknown>[]) ?? []
-  const orders = (snap.orders as Record<string, unknown>[]) ?? []
-
-  const loadAllocation = async () => {
-    setAllocError(null)
-    try {
-      setAllocation(await api.analyticsPortfolio({ mode }))
-    } catch (err) {
-      setAllocation(null)
-      setAllocError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    setError(null)
-    setMessage(null)
-    try {
-      const result = await api.paperOrder({
-        symbol,
-        side,
-        quantity: qty,
-        mode,
-        confirm,
-        allow_historical: allowHistorical || mode === 'demo',
-      })
-      setMessage(
-        `Order ${String((result.order as Record<string, unknown>)?.side)} ${(result.order as Record<string, unknown>)?.symbol}`,
-      )
-      await account.reload()
-      await loadAllocation()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  const runDemo = async () => {
-    setError(null)
-    setMessage(null)
-    try {
-      const result = await api.paperDemoRun()
-      setMode('demo')
-      setMessage(`Demo workflow complete on ${String(result.account_id)}`)
-      await account.reload()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  return (
-    <>
-      <PageHeader
-        title="Portfolio"
-        subtitle="Paper trading, positions, orders, cash, P&L, allocation and risk."
-        badges={
-          <>
-            <Badge label={mode === 'demo' ? 'DEMO' : 'PAPER'} tone={mode === 'demo' ? 'demo' : 'muted'} />
-            <Badge label="NO BROKER EXECUTION" tone="muted" />
-          </>
-        }
-      />
-      <EnvBanner detail="Demo fills stay on demo:academic and never write into paper:default." />
-
-      <div className="toolbar">
-        <label>
-          Account
-          <select value={mode} onChange={(e) => setMode(e.target.value as 'paper' | 'demo')}>
-            <option value="paper">paper:default</option>
-            <option value="demo">demo:academic</option>
-          </select>
-        </label>
-        <button type="button" className="ghost" onClick={() => void account.reload()}>
-          Refresh
-        </button>
-        <button type="button" className="ghost" onClick={() => void api.paperReset(mode).then(() => account.reload())}>
-          Reset account
-        </button>
-        <button type="button" onClick={() => void runDemo()}>
-          Run demo workflow
-        </button>
-        <button type="button" className="ghost" onClick={() => void loadAllocation()}>
-          Load allocation
-        </button>
-      </div>
-
-      {account.error && <ErrorState message={account.error} />}
-      {account.loading && !account.data ? <LoadingState label="Loading portfolio…" /> : null}
-
-      <div className="metric-strip">
-        <Metric label="Cash" value={money(snap.cash)} />
-        <Metric label="Invested" value={money(snap.invested)} />
-        <Metric label="Equity" value={money(snap.equity)} />
-        <Metric label="Net P&L" value={money(snap.net_pnl)} />
-        <Metric label="Return" value={pct(snap.total_return)} />
-        <Metric label="Drawdown" value={pct(snap.drawdown)} />
-        <Metric label="Win rate" value={snap.win_rate == null ? 'n/a' : pct(snap.win_rate)} />
-        <Metric label="Profit factor" value={snap.profit_factor == null ? 'n/a' : String(snap.profit_factor)} />
-      </div>
-
-      <div className="layout-split">
-        <Section title="Positions" subtitle={`Account ${String(account.data?.account_id ?? mode)}`}>
-          <Table
-            rows={positions}
-            columns={pickCols(positions, ['symbol', 'quantity', 'avg_price', 'mark', 'unrealized_pnl', 'freshness'])}
-            empty="No open positions."
-          />
-        </Section>
-        <Section title="Place order" subtitle="Requires confirm. Historical marks only when allowed.">
-          <form className="toolbar stack" onSubmit={submit}>
-            <label>
-              Symbol
-              <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} />
-            </label>
-            <label>
-              Side
-              <select value={side} onChange={(e) => setSide(e.target.value)}>
-                <option>BUY</option>
-                <option>SELL</option>
-              </select>
-            </label>
-            <label>
-              Qty
-              <input type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} />
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />
-              Confirm
-            </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={allowHistorical || mode === 'demo'}
-                disabled={mode === 'demo'}
-                onChange={(e) => setAllowHistorical(e.target.checked)}
-              />
-              Allow historical/delayed
-            </label>
-            <button type="submit">Submit paper order</button>
-          </form>
-        </Section>
-      </div>
-
-      <Expandable title="Order history" defaultOpen>
-        <Table
-          rows={orders}
-          columns={pickCols(orders, ['side', 'symbol', 'quantity', 'fill_price', 'status', 'created_at', 'freshness'])}
-          empty="No orders yet."
-        />
-      </Expandable>
-
-      <Expandable title="Allocation, exposure & concentration">
-        {allocError && <ErrorState message={allocError} />}
-        {allocation ? (
-          <>
-            <div className="metric-strip dense">
-              <Metric label="NAV" value={money(allocation.nav)} />
-              <Metric label="HHI" value={String((allocation.concentration as Record<string, unknown>)?.hhi ?? '—')} />
-              <Metric label="Top weight" value={pct((allocation.concentration as Record<string, unknown>)?.top_weight)} />
-            </div>
-            <Table rows={(allocation.allocation as Record<string, unknown>[]) ?? []} empty="No allocation rows." />
-            <Table rows={(allocation.sector_exposure as Record<string, unknown>[]) ?? []} empty="No sector exposure." />
-          </>
-        ) : (
-          <p className="muted">Load allocation to inspect concentration risk.</p>
-        )}
-      </Expandable>
-
-      {message && <div className="ok">{message}</div>}
-      {error && <ErrorState message={error} />}
-      <AiInsight contextLabel="portfolio & risk" compact />
-    </>
-  )
-}
 
 export function BacktestingPage() {
   const defaults = useLoad(() => api.backtestDefaults())
@@ -429,7 +77,12 @@ export function BacktestingPage() {
       <PageHeader
         title="Backtesting"
         subtitle="Pick any supported stock, simulate the five curated strategies, and read buy analysis."
-        badges={<Badge label="HISTORICAL" tone="historical" />}
+        badges={
+          <>
+            <Badge label="HISTORICAL" tone="historical" />
+            <Badge label="NO LIVE ORDERS" tone="muted" />
+          </>
+        }
       />
       <EnvBanner
         mode="HISTORICAL RESEARCH"
@@ -521,7 +174,9 @@ export function BacktestingPage() {
                     onClick={() => setSelectedStrategy(id)}
                   >
                     <span>
-                      <strong>#{String(row.rank)} {String(row.label)}</strong>
+                      <strong>
+                        #{String(row.rank)} {String(row.label)}
+                      </strong>
                       <span className="muted tiny"> · score {Number(row.rank_score ?? 0).toFixed(3)}</span>
                     </span>
                     <SignalBadge signal={row.signal} />
@@ -542,7 +197,12 @@ export function BacktestingPage() {
             <Section
               title="4. Why buy / why caution"
               subtitle={`${String(buy.ticker)} · best sleeve ${String(buy.best_strategy)}`}
-              actions={<Badge label={String(buy.recommendation ?? '')} tone={String(buy.latest_signal) === 'BUY' ? 'buy' : 'hold'} />}
+              actions={
+                <Badge
+                  label={String(buy.recommendation ?? '')}
+                  tone={String(buy.latest_signal) === 'BUY' ? 'buy' : 'hold'}
+                />
+              }
             >
               <div className="layout-split">
                 <div>
