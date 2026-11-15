@@ -324,6 +324,115 @@ export function PaperPage() {
   )
 }
 
+export function ExplainPage() {
+  const status = useLoad(() => api.explainStatus())
+  const last = useLoad(() => api.explainLast())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const explanation = (last.data?.explanation ?? null) as Record<string, unknown> | null
+
+  const run = async () => {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await api.explainDecision({ use_last_research: true, use_llm: true })
+      setMessage('Explanation refreshed from the latest research context.')
+      await last.reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="banner">
+        <h2>AI Explainability</h2>
+        <p>
+          Explains BUY / SELL / HOLD using structured model and risk outputs. The assistant cannot change signals,
+          risk decisions, or orders. Missing fields stay labelled unavailable.
+        </p>
+      </div>
+      {status.data && (
+        <Panel title="Provider status">
+          <div className="grid">
+            <Metric label="Configured" value={String(status.data.configured)} />
+            <Metric label="Provider" value={String(status.data.provider ?? '—')} />
+            <Metric label="Can override signals" value={String(status.data.can_override_signals)} />
+            <Metric label="Exposes API keys" value={String(status.data.exposes_api_keys)} />
+          </div>
+          <p className="muted">{String(status.data.detail ?? '')}</p>
+        </Panel>
+      )}
+      <button onClick={() => void run()} disabled={busy}>
+        {busy ? 'Explaining…' : 'Explain latest research decision'}
+      </button>
+      {message && <div className="ok" style={{ marginTop: '0.75rem' }}>{message}</div>}
+      {error && <div className="error" style={{ marginTop: '0.75rem' }}>{error}</div>}
+      {!explanation && <p className="muted">No explanation cached yet. Run research, then explain.</p>}
+      {explanation && (
+        <>
+          <div className="grid" style={{ marginTop: '1rem' }}>
+            <Metric label="Ticker" value={String(explanation.ticker ?? '—')} />
+            <Metric label="Decision" value={String((explanation.decision as Record<string, unknown>)?.signal ?? '—')} />
+            <Metric label="Mode" value={String(explanation.mode ?? '—')} />
+            <Metric label="Risk blocked" value={String((explanation.decision as Record<string, unknown>)?.risk_blocked ?? false)} />
+          </div>
+          <Panel title="Decision summary">
+            <p>{String(explanation.summary ?? '')}</p>
+          </Panel>
+          <Panel title="Confidence interpretation">
+            <p>{String(explanation.confidence_interpretation ?? '')}</p>
+            <p className="muted">{String(explanation.probability_of_profit_note ?? '')}</p>
+          </Panel>
+          <Panel title="Supporting factors">
+            <Table rows={(explanation.supporting_factors as Record<string, unknown>[]) ?? []} />
+          </Panel>
+          <Panel title="Conflicting signals">
+            <Table rows={(explanation.conflicting_signals as Record<string, unknown>[]) ?? []} />
+          </Panel>
+          <Panel title="Risk warnings">
+            {(explanation.risk_warnings as string[] | undefined)?.length ? (
+              <ul>
+                {(explanation.risk_warnings as string[]).map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">No risk warnings in this explanation.</p>
+            )}
+            {(explanation.decision as Record<string, unknown>)?.block_reason ? (
+              <p className="muted">Block reason: {String((explanation.decision as Record<string, unknown>).block_reason)}</p>
+            ) : null}
+          </Panel>
+          <Panel title="Market regime / sector">
+            <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>
+              {JSON.stringify(
+                {
+                  market_regime: explanation.market_regime,
+                  sector_context: explanation.sector_context,
+                },
+                null,
+                2,
+              )}
+            </pre>
+          </Panel>
+          <Panel title="Supporting data">
+            <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>
+              {JSON.stringify(explanation.supporting_data ?? {}, null, 2)}
+            </pre>
+            <p className="muted">Unavailable: {JSON.stringify(explanation.unavailable ?? [])}</p>
+          </Panel>
+          <p className="disclaimer">{(explanation.limitations as string[] | undefined)?.join(' ') ?? ''}</p>
+        </>
+      )}
+    </>
+  )
+}
+
 export function SettingsPage() {
   const { data, error, loading, reload } = useLoad(() => api.diagnostics())
   if (loading) return <p className="muted">Loading diagnostics…</p>

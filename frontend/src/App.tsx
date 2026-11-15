@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
 import {
+  ExplainPage,
   MarketPage,
   OverviewPage,
   PaperPage,
@@ -13,6 +14,7 @@ const links = [
   { to: '/market', label: 'Market Data' },
   { to: '/research', label: 'Predictions' },
   { to: '/reliability', label: 'Backtesting / Reliability' },
+  { to: '/explain', label: 'AI Explainability' },
   { to: '/paper', label: 'Paper Trading' },
   { to: '/settings', label: 'Settings' },
 ]
@@ -42,6 +44,7 @@ export default function App() {
           <Route path="/market" element={<MarketPage />} />
           <Route path="/research" element={<ResearchPage />} />
           <Route path="/reliability" element={<ReliabilityPage />} />
+          <Route path="/explain" element={<ExplainPage />} />
           <Route path="/paper" element={<PaperPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

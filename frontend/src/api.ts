@@ -60,4 +60,16 @@ export const api = {
     }),
   researchLast: () => request<Record<string, unknown>>('/api/research/last'),
   researchReliability: () => request<Record<string, unknown>>('/api/research/reliability'),
+  explainStatus: () => request<Record<string, unknown>>('/api/explain/status'),
+  explainLast: () => request<Record<string, unknown>>('/api/explain/last'),
+  explainDecision: (body: Record<string, unknown> = {}) =>
+    request<Record<string, unknown>>('/api/explain/decision', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  explainRiskBlock: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/api/explain/risk-block', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }
