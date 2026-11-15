@@ -12,8 +12,10 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("LIVE_SCANNER_ENABLED", "0")
     monkeypatch.delenv("MARKET_DATA_DB", raising=False)
     monkeypatch.delenv("PAPER_TRADING_DB", raising=False)
+    monkeypatch.delenv("SCAN_DB", raising=False)
     monkeypatch.delenv("BROKER_LIVE_BASE_URL", raising=False)
     monkeypatch.delenv("BROKER_API_KEY", raising=False)
     monkeypatch.delenv("BROKER_ACCESS_TOKEN", raising=False)

@@ -13,6 +13,7 @@ from backtest import (
     backtest_portfolio_long_cash,
     backtest_portfolio_topn_long_cash,
 )
+from transaction_costs import IndiaEquityCostConfig
 from core_config import (
     CORE_MODE,
     CORE_BASE_INTERVAL,
@@ -85,6 +86,11 @@ class FourModelConfig:
     walk_forward_folds: int = 4
     permutation_repeats: int = 4
     calibration: str = "auto"
+    # Optional NSE cash cost assumptions for the long/cash backtest.
+    cost_config: IndiaEquityCostConfig | None = None
+    # When True, keep caller thresholds / risk / strategy after TECHNICAL/CORE interval locks.
+    # Used by the Backtesting UI for manual what-if runs — never by the optimizer.
+    manual_overrides: bool = False
 
 
 def _effective_four_model_config(cfg: FourModelConfig) -> FourModelConfig:
@@ -93,7 +99,7 @@ def _effective_four_model_config(cfg: FourModelConfig) -> FourModelConfig:
     Else CORE_MODE applies legacy evaluation defaults.
     """
     if TECHNICAL_MODE:
-        return replace(
+        out = replace(
             cfg,
             base_interval=CORE_BASE_INTERVAL,
             context_intervals=CORE_CONTEXT_INTERVALS,
@@ -111,8 +117,19 @@ def _effective_four_model_config(cfg: FourModelConfig) -> FourModelConfig:
             risk_config=CORE_RISK_CONFIG,
             portfolio_top_n=int(TECHNICAL_PORTFOLIO_TOP_N),
         )
+        if cfg.manual_overrides:
+            out = replace(
+                out,
+                buy_threshold=float(cfg.buy_threshold),
+                sell_threshold=float(cfg.sell_threshold),
+                risk_config=cfg.risk_config,
+                strategy_mode=cfg.strategy_mode,
+                portfolio_top_n=int(cfg.portfolio_top_n),
+                cost_config=cfg.cost_config,
+            )
+        return out
     if CORE_MODE:
-        return replace(
+        out = replace(
             cfg,
             base_interval=CORE_BASE_INTERVAL,
             context_intervals=CORE_CONTEXT_INTERVALS,
@@ -129,6 +146,16 @@ def _effective_four_model_config(cfg: FourModelConfig) -> FourModelConfig:
             fast_mode=True,
             risk_config=CORE_RISK_CONFIG,
         )
+        if cfg.manual_overrides:
+            out = replace(
+                out,
+                buy_threshold=float(cfg.buy_threshold),
+                sell_threshold=float(cfg.sell_threshold),
+                risk_config=cfg.risk_config,
+                strategy_mode=cfg.strategy_mode,
+                cost_config=cfg.cost_config,
+            )
+        return out
     return cfg
 
 
@@ -335,7 +362,10 @@ def _run_four_model_pipeline_with_data(
         max_trades_per_day=cfg.max_trades_per_day,
         min_minutes_between_trades=cfg.min_minutes_between_trades,
     )
-    backtest = backtest_long_cash(gated_df, cfg=BacktestConfig(initial_capital=cfg.initial_capital))
+    backtest = backtest_long_cash(
+        gated_df,
+        cfg=BacktestConfig(initial_capital=cfg.initial_capital, cost_config=cfg.cost_config),
+    )
 
     latest_row = gated_df.iloc[-1]
     trades = int(gated_df["Signal"].isin(["BUY", "SELL"]).sum())
@@ -975,11 +1005,34 @@ def run_two_stage_portfolio_pipeline(
     }
 
 
-def run_four_model_pipeline(ticker: str, cfg: FourModelConfig | None = None) -> dict:
+def run_four_model_pipeline(
+    ticker: str,
+    cfg: FourModelConfig | None = None,
+    *,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict:
     if cfg is None:
         cfg = FourModelConfig()
     # Apply CORE overrides before download so intervals match evaluation mode (e.g. 1d+1wk, not 1m defaults).
     cfg = _effective_four_model_config(cfg)
     intervals = tuple(dict.fromkeys((cfg.base_interval,) + tuple(cfg.context_intervals)))
     timeframe_data = load_research_timeframes(ticker, intervals=intervals, auto_adjust=True)
+    if start or end:
+        filtered: dict[str, pd.DataFrame] = {}
+        start_ts = pd.Timestamp(start) if start else None
+        end_ts = pd.Timestamp(end) if end else None
+        for key, frame in timeframe_data.items():
+            piece = frame.copy()
+            if "Date" not in piece.columns:
+                filtered[key] = piece
+                continue
+            dates = pd.to_datetime(piece["Date"])
+            mask = pd.Series(True, index=piece.index)
+            if start_ts is not None:
+                mask &= dates >= start_ts
+            if end_ts is not None:
+                mask &= dates <= end_ts
+            filtered[key] = piece.loc[mask].reset_index(drop=True)
+        timeframe_data = filtered
     return _run_four_model_pipeline_with_data(ticker, cfg, timeframe_data)

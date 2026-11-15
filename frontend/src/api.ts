@@ -114,4 +114,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  liveStatus: () => request<Record<string, unknown>>('/api/live/status'),
+  liveCandidates: () => request<Record<string, unknown>>('/api/live/candidates'),
+  liveScan: (symbols?: string[]) =>
+    request<Record<string, unknown>>('/api/live/scan', {
+      method: 'POST',
+      body: JSON.stringify(symbols ? { symbols } : {}),
+    }),
+  backtestDefaults: () => request<Record<string, unknown>>('/api/backtest/defaults'),
+  backtestSymbols: () => request<Record<string, unknown>>('/api/backtest/symbols'),
+  backtestRun: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/api/backtest/run', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  backtestRuns: () => request<Record<string, unknown>>('/api/backtest/runs'),
+  backtestRunGet: (id: number) => request<Record<string, unknown>>(`/api/backtest/runs/${id}`),
+  backtestCompare: (run_ids: number[]) =>
+    request<Record<string, unknown>>('/api/backtest/compare', {
+      method: 'POST',
+      body: JSON.stringify({ run_ids }),
+    }),
 }

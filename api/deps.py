@@ -5,6 +5,8 @@ from __future__ import annotations
 from functools import lru_cache
 
 from api.settings import cors_origin_list, ensure_persistent_paths
+from live_analysis.scanner import MarketScanner, clear_scanner, get_scanner
+from live_analysis.store import ScanStore, open_scan_store
 from market_data.store import MarketStore, open_store
 from paper_trading.engine import PAPER_ACCOUNT_ID, PaperTradingEngine
 from paper_trading.price_sources import quote_from_market_store
@@ -23,9 +25,21 @@ def get_paper_store() -> PaperStore:
     return open_paper_store(paths["paper_trading_db"])
 
 
+@lru_cache(maxsize=1)
+def get_scan_store() -> ScanStore:
+    paths = ensure_persistent_paths()
+    return open_scan_store(paths["scan_db"])
+
+
+def get_scanner_service() -> MarketScanner:
+    return get_scanner(lambda: get_scan_store())
+
+
 def clear_store_caches() -> None:
     get_market_store.cache_clear()
     get_paper_store.cache_clear()
+    get_scan_store.cache_clear()
+    clear_scanner()
 
 
 def paper_engine(*, mode: str = "paper") -> PaperTradingEngine:

@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("MARKET_DATA_DB", str(tmp_path / "market.sqlite"))
     monkeypatch.setenv("PAPER_TRADING_DB", str(tmp_path / "paper.sqlite"))
+    monkeypatch.setenv("SCAN_DB", str(tmp_path / "scans.sqlite"))
+    monkeypatch.setenv("LIVE_SCANNER_ENABLED", "0")
     monkeypatch.setenv("MARKET_DATA_WATCHLIST", "RELIANCE.NS,TCS.NS")
     monkeypatch.delenv("BROKER_LIVE_BASE_URL", raising=False)
     monkeypatch.delenv("BROKER_API_KEY", raising=False)

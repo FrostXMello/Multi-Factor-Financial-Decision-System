@@ -27,14 +27,18 @@ def ensure_persistent_paths() -> dict:
     root = data_dir()
     market = os.environ.get("MARKET_DATA_DB") or str(root / "market.sqlite")
     paper = os.environ.get("PAPER_TRADING_DB") or str(root / "paper.sqlite")
+    scans = os.environ.get("SCAN_DB") or str(root / "scans.sqlite")
     market_path = Path(market).expanduser().resolve()
     paper_path = Path(paper).expanduser().resolve()
+    scan_path = Path(scans).expanduser().resolve()
     market_path.parent.mkdir(parents=True, exist_ok=True)
     paper_path.parent.mkdir(parents=True, exist_ok=True)
+    scan_path.parent.mkdir(parents=True, exist_ok=True)
     return {
         "data_dir": str(root),
         "market_data_db": str(market_path),
         "paper_trading_db": str(paper_path),
+        "scan_db": str(scan_path),
     }
 
 

@@ -438,6 +438,39 @@ input:focus, select:focus {
   border-radius: var(--radius);
   background: rgba(240, 113, 120, 0.04);
 }
+.lock-panel.compact-lock {
+  padding: 1rem 1.1rem;
+  text-align: left;
+}
+.lock-panel.compact-lock h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+.lock-panel.compact-lock p { margin: 0; max-width: none; }
+
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 360px;
+  overflow: auto;
+}
+.candidate-row {
+  display: grid;
+  grid-template-columns: 1.1fr auto auto auto;
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.candidate-row:hover { border-color: rgba(139, 124, 247, 0.45); background: var(--bg-hover); }
+.candidate-row.active {
+  border-color: rgba(139, 124, 247, 0.55);
+  background: var(--accent-soft);
+}
 .lock-panel h3 { margin: 0.35rem 0 0.5rem; }
 .lock-panel p { margin: 0 auto 1rem; max-width: 62ch; color: var(--muted); }
 .lock-icon {
