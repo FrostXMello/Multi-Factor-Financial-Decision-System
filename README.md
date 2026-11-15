@@ -121,6 +121,19 @@ NIFTY 50, NIFTY Midcap 150, and the sector stock lists are **today's** members (
 
 Prices use Yahoo `auto_adjust=True`, so open and close are split- and dividend-adjusted together. Invalid OHLC bars (range that does not contain open/close, non-positive prices, negative volume) are dropped.
 
+## Navigation
+
+Sidebar sections:
+
+1. **Overview** — system summary, data status, paper-account snapshot  
+2. **Market Data** — providers, SQLite coverage, collection  
+3. **Research & Predictions** — CORE / technical pipeline  
+4. **Backtesting / Reliability** — walk-forward payload from the current session  
+5. **Paper Trading** — isolated virtual account + Demo / Replay  
+6. **Settings / Diagnostics** — paths, env checklist, verification status  
+
+For a closed-market academic walkthrough, see [`DEMO_GUIDE.md`](DEMO_GUIDE.md).
+
 ## Market data
 
 The technical research path reads daily and weekly bars from a local SQLite file and backfills anything missing from Yahoo Finance. The feature builder is unchanged: higher timeframes are still joined with a backward as-of merge, and bars after an optional `as_of` are not returned.
@@ -141,6 +154,24 @@ These repositories were reviewed and **not** installed:
 | `Apurv-Salunke/india-stocks-api` | MIT and closer to a broker facade, but Python 3.10+, Angel One only, and it also places orders. No credentials were available to verify it. |
 
 The live adapter is a small HTTP client for an official quote URL you supply. It was not connected to Zerodha, Angel One, or any other broker in this milestone.
+
+**M3 implementation and offline validation are complete. Live NSE-session quote ingestion remains pending verification during the next market session.**
+
+## Paper trading
+
+`paper_trading/` is an isolated virtual broker. It never imports a live order API and never submits real orders.
+
+- Normal paper account id: `paper:default` in `data/paper.sqlite` (`PAPER_TRADING_DB`).  
+- Demo / Replay account id: `demo:academic`. Demo fills use deterministic fixtures labelled `demo` and cannot write into the normal paper book.  
+- Fills reuse `IndiaEquityCostConfig` (brokerage, statutory-style charges, slippage).  
+- Risk gates: cash, holdings (no short by default), max order value, max position value, portfolio exposure, daily loss, duplicate client ids, confirmation required by default.  
+- Model signals map through `submit_signal`; auto-execution is off unless explicitly enabled.
+
+Offline tests live in `tests/test_paper_trading.py` and `tests/test_market_*.py`. Run:
+
+```bash
+.venv/bin/python -m pytest -q tests
+```
 
 ## Notes
 
