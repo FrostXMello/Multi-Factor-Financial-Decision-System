@@ -53,8 +53,10 @@ export const api = {
   diagnostics: () => request<Record<string, unknown>>('/api/diagnostics'),
   marketStatus: () => request<Record<string, unknown>>('/api/market/status'),
   marketQuotes: () => request<Record<string, unknown>>('/api/market/quotes'),
-  marketCandles: (symbol: string) =>
-    request<Record<string, unknown>>(`/api/market/candles/${encodeURIComponent(symbol)}`),
+  marketCandles: (symbol: string, limit = 180) =>
+    request<Record<string, unknown>>(
+      `/api/market/candles/${encodeURIComponent(symbol)}?timeframe=1d&limit=${limit}`,
+    ),
   marketCoverage: () => request<Record<string, unknown>>('/api/market/coverage'),
   marketQuality: () => request<Record<string, unknown>>('/api/market/quality'),
   marketCollect: () =>
