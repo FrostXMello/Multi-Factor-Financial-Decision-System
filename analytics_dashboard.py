@@ -101,7 +101,7 @@ def render_model_reliability(reliability: dict | None) -> None:
             )
             if c in folds.columns
         ]
-        st.dataframe(folds[show], use_container_width=True, hide_index=True)
+        st.dataframe(folds[show], width="stretch", hide_index=True)
     else:
         st.caption("No fold table was returned.")
 
@@ -133,7 +133,7 @@ def render_model_reliability(reliability: dict | None) -> None:
             }
         )
     if metric_rows:
-        st.dataframe(pd.DataFrame(metric_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(metric_rows), width="stretch", hide_index=True)
         st.caption(
             "ROC-AUC and PR-AUC are omitted when a sample has one class or fewer than 20 rows. "
             "Precision, recall, and F1 use a 0.5 probability cutoff. "
@@ -144,11 +144,11 @@ def render_model_reliability(reliability: dict | None) -> None:
 
     left, right = st.columns(2)
     with left:
-        st.pyplot(_reliability_figure(rel.get("reliability_bins_raw"), "Raw out-of-sample reliability"), use_container_width=True)
+        st.pyplot(_reliability_figure(rel.get("reliability_bins_raw"), "Raw out-of-sample reliability"), width="stretch")
     with right:
         st.pyplot(
             _reliability_figure(rel.get("reliability_bins"), f"Decision probabilities ({method})"),
-            use_container_width=True,
+            width="stretch",
         )
     plt.close("all")
 
@@ -160,14 +160,14 @@ def render_model_reliability(reliability: dict | None) -> None:
         ax.set_xlabel("Out-of-sample decision probability")
         ax.set_ylabel("Bars")
         ax.grid(True, alpha=0.25)
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
         plt.close(fig)
 
     st.subheader("Confusion matrix")
     st.caption("Classifier cutoff is 0.5 on out-of-sample decision probabilities. This is not the trade list.")
     confusion = rel.get("confusion")
     if isinstance(confusion, pd.DataFrame) and len(confusion):
-        st.dataframe(confusion, use_container_width=True)
+        st.dataframe(confusion, width="stretch")
     else:
         st.caption("A confusion matrix needs both classes in the out-of-sample labels.")
 
@@ -178,14 +178,14 @@ def render_model_reliability(reliability: dict | None) -> None:
     )
     importance = rel.get("importance")
     if isinstance(importance, pd.DataFrame) and len(importance):
-        st.dataframe(importance, use_container_width=True, hide_index=True)
+        st.dataframe(importance, width="stretch", hide_index=True)
         fig, ax = plt.subplots(figsize=(8, max(2.6, 0.38 * len(importance))))
         plot_df = importance.iloc[::-1]
         xerr = plot_df["FoldStd"] if "FoldStd" in plot_df.columns else None
         ax.barh(plot_df["Feature"], plot_df["Importance"], xerr=xerr, color="#1f4b99", alpha=0.9)
         ax.set_xlabel("Mean held-out importance")
         ax.grid(True, axis="x", alpha=0.25)
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
         plt.close(fig)
     else:
         st.caption("Held-out permutation importance was not computed. The out-of-sample folds were too small, or repeats were disabled.")
@@ -204,7 +204,7 @@ def render_model_reliability(reliability: dict | None) -> None:
     )
     local = rel.get("local_explanation")
     if isinstance(local, pd.DataFrame) and len(local):
-        st.dataframe(local, use_container_width=True, hide_index=True)
+        st.dataframe(local, width="stretch", hide_index=True)
     else:
         st.caption("No single-bar sensitivity was computed for this run.")
 
@@ -304,10 +304,10 @@ def render_single_ticker_quant_dashboard(
                 buy_hold_equity=benchmark_bt["equity_curve"],
                 underlying_label=f"{sym} close (normalized)",
             )
-            st.pyplot(fig_c, use_container_width=True)
+            st.pyplot(fig_c, width="stretch")
         else:
             st.markdown("#### Equity curve")
-            st.pyplot(plot_equity_curve(backtest["equity_curve"], title=f"{sym} — strategy equity"), use_container_width=True)
+            st.pyplot(plot_equity_curve(backtest["equity_curve"], title=f"{sym} — strategy equity"), width="stretch")
             if benchmark_bt is not None:
                 st.pyplot(
                     plot_equity_comparison(
@@ -315,7 +315,7 @@ def render_single_ticker_quant_dashboard(
                         benchmark_bt["equity_curve"],
                         title="Strategy vs buy & hold",
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
     with tab_rel:
@@ -356,7 +356,7 @@ def render_single_ticker_quant_dashboard(
         rc[0].metric("Max drawdown", _fmt_pct(risk["max_drawdown_pct"]))
         rc[1].metric("Avg. drawdown (underwater)", _fmt_pct(risk["avg_drawdown_pct"]))
         rc[2].metric("Volatility (ann.)", _fmt_pct(risk["volatility_ann_pct"]))
-        st.pyplot(plot_drawdown_curve(series["drawdown"]), use_container_width=True)
+        st.pyplot(plot_drawdown_curve(series["drawdown"]), width="stretch")
 
         st.subheader("Trade analytics")
         if tr["total_trades"] > 0:
@@ -373,7 +373,7 @@ def render_single_ticker_quant_dashboard(
             tc2[1].metric("Avg loss ($)", _fmt_num(tr["avg_loss"], 2))
             tc2[2].metric("Max win streak", str(tr["max_consecutive_wins"]))
             tc2[3].metric("Max loss streak", str(tr["max_consecutive_losses"]))
-            st.dataframe(trades_df, use_container_width=True, hide_index=True)
+            st.dataframe(trades_df, width="stretch", hide_index=True)
         else:
             st.info("No completed round-trip trades in the test window (all HOLD or open position at end).")
         st.metric("Exposure (% of bars long)", _fmt_pct(strat["exposure_pct"]))
@@ -382,12 +382,12 @@ def render_single_ticker_quant_dashboard(
         st.subheader("Time analysis")
         mp = series["monthly_returns_pivot"]
         if mp is not None and not mp.empty:
-            st.pyplot(plot_monthly_returns_heatmap(mp), use_container_width=True)
+            st.pyplot(plot_monthly_returns_heatmap(mp), width="stretch")
         else:
             st.caption("Not enough calendar depth for monthly heatmap.")
         rs = series["rolling_sharpe"]
         if rs is not None and len(rs) > 0:
-            st.pyplot(plot_rolling_sharpe(rs, title="Rolling Sharpe (60 trading days)"), use_container_width=True)
+            st.pyplot(plot_rolling_sharpe(rs, title="Rolling Sharpe (60 trading days)"), width="stretch")
         else:
             st.caption("Not enough observations for rolling Sharpe.")
 
@@ -415,7 +415,7 @@ def render_single_ticker_quant_dashboard(
                 "Buy & hold": _fmt_pct(bench.get("bh_max_dd_pct", float("nan")), 4) if bench else "—",
             },
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
         st.subheader("Signals (test period)")
         st.write(f"Execution counts: **{counts}**")
@@ -428,7 +428,7 @@ def render_single_ticker_quant_dashboard(
         if mdl is not None and fn and isinstance(fn, list) and len(fn) > 0:
             fi = feature_importance_dataframe(mdl, fn)
             if fi is not None and len(fi) > 0:
-                st.dataframe(fi, use_container_width=True, hide_index=True)
+                st.dataframe(fi, width="stretch", hide_index=True)
             else:
                 st.caption(
                     "Native importances are unavailable for HistGradientBoosting. "
@@ -445,7 +445,7 @@ def render_single_ticker_quant_dashboard(
             ax.hist(np.asarray(test_proba, dtype=float), bins=30, color="#34495e", alpha=0.85)
             ax.set_title("Distribution of P(up) on test set")
             ax.grid(True, alpha=0.25)
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width="stretch")
 
 
 def render_portfolio_quant_dashboard(
@@ -512,11 +512,11 @@ def render_portfolio_quant_dashboard(
             signals_by_ticker=sig,
             buy_hold_equity=benchmark_bt["equity_curve"],
         )
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
     else:
         st.pyplot(
             plot_equity_curve(portfolio_backtest["equity_curve"], title="Portfolio equity"),
-            use_container_width=True,
+            width="stretch",
         )
         if benchmark_bt is not None:
             st.pyplot(
@@ -525,16 +525,16 @@ def render_portfolio_quant_dashboard(
                     benchmark_bt["equity_curve"],
                     title="Portfolio vs buy & hold",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
-    st.pyplot(plot_drawdown_curve(series["drawdown"]), use_container_width=True)
+    st.pyplot(plot_drawdown_curve(series["drawdown"]), width="stretch")
     mp = series["monthly_returns_pivot"]
     if mp is not None and not mp.empty:
-        st.pyplot(plot_monthly_returns_heatmap(mp, title="Portfolio monthly returns (%)"), use_container_width=True)
+        st.pyplot(plot_monthly_returns_heatmap(mp, title="Portfolio monthly returns (%)"), width="stretch")
     rs = series["rolling_sharpe"]
     if rs is not None and len(rs) > 0:
-        st.pyplot(plot_rolling_sharpe(rs), use_container_width=True)
+        st.pyplot(plot_rolling_sharpe(rs), width="stretch")
 
     if bench:
         st.markdown("#### Strategy vs buy & hold (portfolio)")
@@ -563,7 +563,7 @@ def render_portfolio_quant_dashboard(
                     },
                 ]
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 

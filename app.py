@@ -34,6 +34,9 @@ from sector_universe import all_sector_rotation_tickers
 from data_api import DataAPIConfig, load_candles_features_metadata
 from market_data.dashboard import render_market_data_section
 from market_data.research_loader import load_research_timeframes
+from paper_trading.dashboard import render_paper_trading_section
+from ui.overview import render_overview, render_reliability_landing, render_settings_diagnostics
+from ui.theme import apply_terminal_theme, section_nav
 from fundamentals_store import (
     FundamentalsConfig,
     build_fundamentals_quality_report,
@@ -66,7 +69,25 @@ STRATEGY_UI_TO_CANON = {
 
 
 st.set_page_config(page_title="Multi-Factor Financial Decision System", layout="wide")
-st.title("Multi-Factor Financial Decision System")
+apply_terminal_theme()
+_nav = section_nav(default="Overview")
+if _nav == "Overview":
+    render_overview()
+    st.stop()
+if _nav == "Market Data":
+    render_market_data_section()
+    st.stop()
+if _nav == "Paper Trading":
+    render_paper_trading_section()
+    st.stop()
+if _nav == "Settings / Diagnostics":
+    render_settings_diagnostics()
+    st.stop()
+if _nav == "Backtesting / Reliability":
+    render_reliability_landing()
+    st.stop()
+
+st.title("Research & Predictions")
 if CORE_MODE:
     if TECHNICAL_MODE:
         st.caption(
@@ -465,15 +486,12 @@ with col_left:
         st.success(
             "CORE_MODE is **on** (`core_config.CORE_MODE`). Advanced controls are hidden; pipeline uses fixed academic defaults."
         )
-        _core_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio", "Market Data"]
+        _core_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio"]
         if MULTI_LAYER_MODE:
             _core_u.append("Multi-Layer (3-Stage)")
         if SECTOR_ROTATION_MODE:
             _core_u.append("Sector Rotation (Flow)")
         universe_mode = st.selectbox("Universe", options=_core_u, index=0)
-        if universe_mode == "Market Data":
-            render_market_data_section()
-            st.stop()
         if TECHNICAL_MODE:
             strategy_choice = "Technical-Only"
             st.caption(
@@ -546,15 +564,12 @@ with col_left:
         fast_mode = True
         effective_optimizer_evals = 10
     else:
-        _adv_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio", "Market Data"]
+        _adv_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio"]
         if MULTI_LAYER_MODE:
             _adv_u.append("Multi-Layer (3-Stage)")
         if SECTOR_ROTATION_MODE:
             _adv_u.append("Sector Rotation (Flow)")
         universe_mode = st.selectbox("Universe Mode", options=_adv_u, index=0)
-        if universe_mode == "Market Data":
-            render_market_data_section()
-            st.stop()
         core_include_macro = True
         pipeline_mode = st.selectbox("Pipeline Mode", options=["Simple Production", "Advanced Research"], index=0)
         advanced_mode = pipeline_mode == "Advanced Research"
@@ -1186,16 +1201,16 @@ if run:
             st.markdown("### Latest snapshot — final selection (equal-weight target)")
             fin = snap.get("layer3_table")
             if fin is not None and len(fin) > 0:
-                st.dataframe(fin, use_container_width=True, hide_index=True)
+                st.dataframe(fin, width="stretch", hide_index=True)
                 alloc = 100.0 / max(1, len(fin))
                 st.caption(f"Target allocation ≈ **{alloc:.1f}%** each (before frictions). Same pipeline runs at **each month-end** in the backtest below.")
             else:
                 st.warning("No names passed Layer 3 gates — relax probability / Layer 1–2 sizes.")
 
             with st.expander("Layer 1 detail (momentum rank)", expanded=False):
-                st.dataframe(snap.get("layer1_table", pd.DataFrame()), use_container_width=True, hide_index=True)
+                st.dataframe(snap.get("layer1_table", pd.DataFrame()), width="stretch", hide_index=True)
             with st.expander("Layer 2 detail (ML scores)", expanded=False):
-                st.dataframe(snap.get("layer2_table", pd.DataFrame()), use_container_width=True, hide_index=True)
+                st.dataframe(snap.get("layer2_table", pd.DataFrame()), width="stretch", hide_index=True)
 
             st.divider()
             st.markdown("## Walk-forward portfolio analytics")
@@ -1226,12 +1241,12 @@ if run:
                         pk = e.get("Picks") or []
                         s = ", ".join(pk[:25]) + (" …" if len(pk) > 25 else "")
                         _lr.append({"RebalanceDate": e.get("Date"), "N": e.get("N"), "Picks": s})
-                    st.dataframe(pd.DataFrame(_lr), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(_lr), width="stretch", hide_index=True)
 
             _tdf = _pbt.get("trades_df")
             if _tdf is not None and isinstance(_tdf, pd.DataFrame) and len(_tdf) > 0:
                 with st.expander("Holding segments — PnL vs start of segment", expanded=False):
-                    st.dataframe(_tdf, use_container_width=True, hide_index=True)
+                    st.dataframe(_tdf, width="stretch", hide_index=True)
 
             latest_signal_placeholder.empty()
             latest_proba_placeholder.empty()
@@ -1251,7 +1266,7 @@ if run:
             st.markdown("### Sector ranking")
             srt = snap.get("sector_rank_table")
             if srt is not None and isinstance(srt, pd.DataFrame) and len(srt) > 0:
-                st.dataframe(srt, use_container_width=True, hide_index=True)
+                st.dataframe(srt, width="stretch", hide_index=True)
             else:
                 st.warning("No sector scores computed.")
             st.markdown("### Active top sectors (this rebalance logic)")
@@ -1259,7 +1274,7 @@ if run:
             st.markdown("### Final portfolio (equal weight)")
             ptab = snap.get("portfolio_table")
             if ptab is not None and isinstance(ptab, pd.DataFrame) and len(ptab) > 0:
-                st.dataframe(ptab, use_container_width=True, hide_index=True)
+                st.dataframe(ptab, width="stretch", hide_index=True)
             else:
                 st.warning("No stocks selected — try Random Forest, relax vol filter, or extend history.")
 
@@ -1267,7 +1282,7 @@ if run:
                 sk = str(sel.get("SectorKey", ""))
                 with st.expander(f"Sector **{sk}** → pick **{sel.get('Ticker', '')}** (P={float(sel.get('Proba', float('nan'))):.3f})", expanded=False):
                     cands = sel.get("Candidates") or []
-                    st.dataframe(pd.DataFrame(cands), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(cands), width="stretch", hide_index=True)
 
             st.divider()
             st.markdown("## Weekly walk-forward portfolio analytics")
@@ -1304,7 +1319,7 @@ if run:
                                 "Picks": ", ".join(pk[:12]) + (" …" if len(pk) > 12 else ""),
                             }
                         )
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
             latest_signal_placeholder.empty()
             latest_proba_placeholder.empty()
@@ -1322,6 +1337,12 @@ if run:
                 else "Model Probability (P(next return > 0))"
             )
             _rel = extra.get("reliability") if isinstance(extra, dict) else None
+            if isinstance(_rel, dict):
+                st.session_state["last_reliability"] = _rel
+            st.session_state["last_research_summary"] = (
+                f"**{ticker}** · signal **{latest['signal']}** · proba `{latest['proba']:.3f}` · "
+                f"net return `{backtest['total_return_pct']:.2f}%` · final value `{backtest['final_portfolio_value']:.2f}`"
+            )
             if isinstance(_rel, dict) and _rel.get("decision_method") not in (None, "raw"):
                 _proba_lbl = f"{_proba_lbl} — calibrated ({_rel.get('decision_method')})"
             elif isinstance(_rel, dict) and _rel.get("evaluation") == "walk_forward":
@@ -1383,7 +1404,7 @@ if run:
 
                 if price_quality is not None and len(price_quality) > 0:
                     st.markdown("Price data quality by timeframe")
-                    st.dataframe(price_quality, use_container_width=True, hide_index=True)
+                    st.dataframe(price_quality, width="stretch", hide_index=True)
 
                 funda_quality = extra.get("fundamentals_quality") if isinstance(extra, dict) else None
                 funda_ticker = extra.get("fundamentals_ticker") if isinstance(extra, dict) else None
@@ -1398,10 +1419,10 @@ if run:
 
                 if (not CORE_MODE) and funda_quality is not None and len(funda_quality) > 0:
                     st.markdown("Fundamentals cache quality")
-                    st.dataframe(funda_quality, use_container_width=True, hide_index=True)
+                    st.dataframe(funda_quality, width="stretch", hide_index=True)
                 if (not CORE_MODE) and funda_ticker is not None and len(funda_ticker) > 0:
                     st.markdown("Selected ticker fundamentals")
-                    st.dataframe(funda_ticker, use_container_width=True, hide_index=True)
+                    st.dataframe(funda_ticker, width="stretch", hide_index=True)
             opt_pack = extra.get("optimization") if isinstance(extra, dict) else None
             if isinstance(opt_pack, dict) and opt_pack.get("enabled"):
                 best_cfg = opt_pack.get("best_config")
@@ -1420,7 +1441,7 @@ if run:
                 leaderboard = opt_pack.get("leaderboard")
                 if leaderboard is not None and len(leaderboard) > 0:
                     st.markdown("### Optimizer Leaderboard (Top 10)")
-                    optimizer_table_placeholder.dataframe(leaderboard.head(10), use_container_width=True, hide_index=True)
+                    optimizer_table_placeholder.dataframe(leaderboard.head(10), width="stretch", hide_index=True)
             signal_counts_placeholder.write(f"Signal counts on test: {counts}")
 
             if counts.get("BUY", 0) == 0 or counts.get("SELL", 0) == 0:
@@ -1473,7 +1494,7 @@ if run:
 
             if benchmark_df is not None and len(benchmark_df) > 0:
                 st.markdown("### Comprehensive Benchmark Suite")
-                st.dataframe(benchmark_df, use_container_width=True, hide_index=True)
+                st.dataframe(benchmark_df, width="stretch", hide_index=True)
                 best_row = benchmark_df.iloc[0]
                 st.success(
                     f"Best benchmark: model={best_row.get('Model')}, interval={best_row.get('BaseInterval')}, "
@@ -1514,16 +1535,16 @@ if run:
                 pq = extra.get("price_quality_universe") if isinstance(extra, dict) else None
                 if pq is not None and len(pq) > 0:
                     st.markdown("Price quality by ticker (base interval)")
-                    st.dataframe(pq.sort_values("Ticker"), use_container_width=True, hide_index=True)
+                    st.dataframe(pq.sort_values("Ticker"), width="stretch", hide_index=True)
 
                 fq = extra.get("fundamentals_quality") if isinstance(extra, dict) else None
                 fs = extra.get("fundamentals_subset") if isinstance(extra, dict) else None
                 if fq is not None and len(fq) > 0:
                     st.markdown("Fundamentals quality (selected universe)")
-                    st.dataframe(fq, use_container_width=True, hide_index=True)
+                    st.dataframe(fq, width="stretch", hide_index=True)
                 if fs is not None and len(fs) > 0:
                     st.markdown("Fundamentals snapshot (selected universe)")
-                    st.dataframe(fs.sort_values("Ticker"), use_container_width=True, hide_index=True)
+                    st.dataframe(fs.sort_values("Ticker"), width="stretch", hide_index=True)
 
             opt_pack = extra.get("optimization") if isinstance(extra, dict) else None
             if isinstance(opt_pack, dict) and opt_pack.get("enabled"):
@@ -1544,13 +1565,13 @@ if run:
                 if leaderboard is not None and len(leaderboard) > 0:
                     title = "### Portfolio 2-Stage Validation Leaderboard (Top 10)" if opt_pack.get("mode") == "two-stage" else "### Portfolio Optimizer Leaderboard (Top 10)"
                     st.markdown(title)
-                    optimizer_table_placeholder.dataframe(leaderboard.head(10), use_container_width=True, hide_index=True)
+                    optimizer_table_placeholder.dataframe(leaderboard.head(10), width="stretch", hide_index=True)
                 research_top = opt_pack.get("research_top")
                 if research_top is not None and len(research_top) > 0:
                     st.markdown("### Research Stage Top Configs")
-                    st.dataframe(research_top, use_container_width=True, hide_index=True)
+                    st.dataframe(research_top, width="stretch", hide_index=True)
 
-            portfolio_table_placeholder.dataframe(table_df, use_container_width=True, hide_index=True)
+            portfolio_table_placeholder.dataframe(table_df, width="stretch", hide_index=True)
             _csv_name = (
                 "portfolio_latest_signals_nifty50.csv"
                 if universe_mode == "NIFTY 50 Portfolio"
