@@ -32,6 +32,7 @@ from core_config import (
     assert_optimizer_allowed,
 )
 from data_loader import download_multi_timeframe_data
+from market_data.research_loader import load_research_timeframes
 from feature_engineering import MultiTimeframeDatasetConfig, build_multi_timeframe_dataset
 from fusion_model import FusionConfig, core_simple_fusion, meta_fusion, weighted_fusion
 from macro_model import MacroConfig, build_macro_features, infer_macro_probability
@@ -756,7 +757,7 @@ def run_portfolio_four_model_pipeline(
     timeframe_data_by_ticker: dict[str, dict[str, pd.DataFrame]] = {}
     for t in cleaned:
         try:
-            timeframe_data_by_ticker[t] = download_multi_timeframe_data(t, intervals=intervals, auto_adjust=True)
+            timeframe_data_by_ticker[t] = load_research_timeframes(t, intervals=intervals, auto_adjust=True)
         except Exception:
             continue
 
@@ -980,5 +981,5 @@ def run_four_model_pipeline(ticker: str, cfg: FourModelConfig | None = None) -> 
     # Apply CORE overrides before download so intervals match evaluation mode (e.g. 1d+1wk, not 1m defaults).
     cfg = _effective_four_model_config(cfg)
     intervals = tuple(dict.fromkeys((cfg.base_interval,) + tuple(cfg.context_intervals)))
-    timeframe_data = download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=True)
+    timeframe_data = load_research_timeframes(ticker, intervals=intervals, auto_adjust=True)
     return _run_four_model_pipeline_with_data(ticker, cfg, timeframe_data)

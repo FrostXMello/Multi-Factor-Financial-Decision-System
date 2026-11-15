@@ -121,6 +121,27 @@ NIFTY 50, NIFTY Midcap 150, and the sector stock lists are **today's** members (
 
 Prices use Yahoo `auto_adjust=True`, so open and close are split- and dividend-adjusted together. Invalid OHLC bars (range that does not contain open/close, non-positive prices, negative volume) are dropped.
 
+## Market data
+
+The technical research path reads daily and weekly bars from a local SQLite file and backfills anything missing from Yahoo Finance. The feature builder is unchanged: higher timeframes are still joined with a backward as-of merge, and bars after an optional `as_of` are not returned.
+
+Default database path: `data/market.sqlite`. Override it with `MARKET_DATA_DB`. The file is gitignored. Schema version is stored in `schema_migrations`. Candle identity is `(symbol, timeframe, bar_time)`, so a repeated backfill updates the bar instead of inserting a second copy.
+
+Yahoo rows are **delayed research history**, not a live NSE feed. The Market Data screen says so. A live quote is stored only when a configured broker response sets `freshness` to `live`. Missing credentials send no request and create no quote. Copy `.env.example` to `.env` for the variable names. Do not commit `.env`.
+
+The collector requests the watchlist only while the NSE cash clock says the session is open (09:15–15:30 IST, weekdays). That clock does not include the exchange holiday list. Outside the session it records that no quote was requested. Failed requests retry with backoff, then the error is stored. A WebSocket URL can be configured, but this install does not open a socket; polling is the fallback when a quote URL and credentials exist.
+
+These repositories were reviewed and **not** installed:
+
+| Repository | Why it was not integrated |
+|---|---|
+| `TheHardeep/fenix` | GPL-3.0 broker **order** adapter. Python 3.10+. Order placement is out of scope, and the license would cover this app. |
+| `aeron7/nsepython` | Unofficial NSE website client. Not an authorized production feed. |
+| `Sampad-Hegde/Bharat-SM-Data` | Self-described scraper, even though the license is Apache-2.0. |
+| `Apurv-Salunke/india-stocks-api` | MIT and closer to a broker facade, but Python 3.10+, Angel One only, and it also places orders. No credentials were available to verify it. |
+
+The live adapter is a small HTTP client for an official quote URL you supply. It was not connected to Zerodha, Angel One, or any other broker in this milestone.
+
 ## Notes
 
 - This project intentionally combines Macro + Micro + Fusion + Optimizer + Intraday layers; this improves flexibility but can increase over-engineering risk if not validated with strict out-of-sample testing.

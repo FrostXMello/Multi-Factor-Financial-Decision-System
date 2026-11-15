@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from data_loader import download_multi_timeframe_data
+from market_data.research_loader import load_research_timeframes
 from feature_engineering import MultiTimeframeDatasetConfig, build_multi_timeframe_dataset
 from strategy_modes import STRATEGY_MULTI_FACTOR
 
@@ -63,7 +63,7 @@ def load_candles_features_metadata(ticker: str, cfg: DataAPIConfig | None = None
         cfg = DataAPIConfig()
 
     intervals = tuple(dict.fromkeys((cfg.base_interval,) + tuple(cfg.context_intervals)))
-    timeframe_data = download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=cfg.auto_adjust)
+    timeframe_data = load_research_timeframes(ticker, intervals=intervals, auto_adjust=cfg.auto_adjust)
 
     model_df, technical_feature_cols = build_multi_timeframe_dataset(
         timeframe_data,

@@ -15,6 +15,9 @@ class DownloadConfig:
     interval: str = "1d"
     # Yahoo adjusted OHLC so splits and dividends stay on the same basis as Close.
     auto_adjust: bool = True
+    # When start is set, Yahoo is queried from that date instead of `period`.
+    start: str | None = None
+    end: str | None = None
 
 
 DEFAULT_PERIOD_BY_INTERVAL: dict[str, str] = {
@@ -88,14 +91,20 @@ def download_stock_data(ticker: str, cfg: DownloadConfig | None = None) -> pd.Da
 
     interval = _normalize_interval(cfg.interval)
 
-    df = yf.download(
-        tickers=ticker,
-        period=cfg.period,
-        interval=interval,
-        auto_adjust=cfg.auto_adjust,
-        progress=False,
-        threads=True,
-    )
+    download_kwargs = {
+        "tickers": ticker,
+        "interval": interval,
+        "auto_adjust": cfg.auto_adjust,
+        "progress": False,
+        "threads": True,
+    }
+    if cfg.start:
+        download_kwargs["start"] = cfg.start
+        if cfg.end:
+            download_kwargs["end"] = cfg.end
+    else:
+        download_kwargs["period"] = cfg.period
+    df = yf.download(**download_kwargs)
 
     if df is None or df.empty:
         raise ValueError(f"No data returned for ticker: {ticker}")

@@ -32,7 +32,8 @@ from sector_rotation_pipeline import (
 )
 from sector_universe import all_sector_rotation_tickers
 from data_api import DataAPIConfig, load_candles_features_metadata
-from data_loader import download_multi_timeframe_data
+from market_data.dashboard import render_market_data_section
+from market_data.research_loader import load_research_timeframes
 from fundamentals_store import (
     FundamentalsConfig,
     build_fundamentals_quality_report,
@@ -217,7 +218,7 @@ def _render_portfolio_ticker_chooser(*, default_selection: list[str]) -> str:
 @st.cache_data(ttl=10 * 60)
 def load_multi_timeframe_cached(ticker: str, base_interval: str, context_intervals: tuple[str, ...]):
     intervals = tuple(dict.fromkeys((base_interval,) + context_intervals + ("1d",)))
-    return download_multi_timeframe_data(ticker, intervals=intervals, auto_adjust=True)
+    return load_research_timeframes(ticker, intervals=intervals, auto_adjust=True)
 
 
 @st.cache_data(ttl=10 * 60)
@@ -464,12 +465,15 @@ with col_left:
         st.success(
             "CORE_MODE is **on** (`core_config.CORE_MODE`). Advanced controls are hidden; pipeline uses fixed academic defaults."
         )
-        _core_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio"]
+        _core_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio", "Market Data"]
         if MULTI_LAYER_MODE:
             _core_u.append("Multi-Layer (3-Stage)")
         if SECTOR_ROTATION_MODE:
             _core_u.append("Sector Rotation (Flow)")
         universe_mode = st.selectbox("Universe", options=_core_u, index=0)
+        if universe_mode == "Market Data":
+            render_market_data_section()
+            st.stop()
         if TECHNICAL_MODE:
             strategy_choice = "Technical-Only"
             st.caption(
@@ -542,12 +546,15 @@ with col_left:
         fast_mode = True
         effective_optimizer_evals = 10
     else:
-        _adv_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio"]
+        _adv_u = ["Single Ticker", "NIFTY 50 Portfolio", "NIFTY Midcap 150 Portfolio", "Market Data"]
         if MULTI_LAYER_MODE:
             _adv_u.append("Multi-Layer (3-Stage)")
         if SECTOR_ROTATION_MODE:
             _adv_u.append("Sector Rotation (Flow)")
         universe_mode = st.selectbox("Universe Mode", options=_adv_u, index=0)
+        if universe_mode == "Market Data":
+            render_market_data_section()
+            st.stop()
         core_include_macro = True
         pipeline_mode = st.selectbox("Pipeline Mode", options=["Simple Production", "Advanced Research"], index=0)
         advanced_mode = pipeline_mode == "Advanced Research"
