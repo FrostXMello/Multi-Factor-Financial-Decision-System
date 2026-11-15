@@ -58,12 +58,23 @@ def summarize_research(result: dict) -> dict:
         latest = {
             "date": jsonable(row.get("Date")),
             "signal": str(row.get("Signal", "HOLD")),
+            "signal_model": jsonable(row.get("SignalModel")) if "SignalModel" in test_df.columns else None,
             "proba": jsonable(row.get("Proba")),
             "close": jsonable(row.get("Close")),
+            "ma50": jsonable(row.get("MA50")) if "MA50" in test_df.columns else None,
+            "ma20": jsonable(row.get("MA20")) if "MA20" in test_df.columns else None,
+            "rsi14": jsonable(row.get("RSI14")) if "RSI14" in test_df.columns else None,
             "risk_score": jsonable(row.get("RiskScore")),
             "position_size": jsonable(row.get("PositionSize")),
+            "no_trade": jsonable(bool(row.get("NoTrade"))) if "NoTrade" in test_df.columns else None,
+            "realized_vol": jsonable(row.get("RealizedVol")) if "RealizedVol" in test_df.columns else None,
+            "rolling_drawdown": jsonable(row.get("RollingDrawdown")) if "RollingDrawdown" in test_df.columns else None,
         }
-        cols = [c for c in ("Date", "Close", "Signal", "Proba", "RiskScore") if c in test_df.columns]
+        cols = [
+            c
+            for c in ("Date", "Close", "MA50", "Signal", "SignalModel", "Proba", "RiskScore", "NoTrade")
+            if c in test_df.columns
+        ]
         signals_tail = jsonable(test_df[cols].tail(30))
 
     backtest = result.get("backtest") or {}
@@ -97,10 +108,15 @@ def summarize_research(result: dict) -> dict:
         if key in reliability
     }
 
+    cfg = result.get("config") if isinstance(result.get("config"), dict) else {}
     return {
         "ticker": result.get("ticker"),
         "strategy_mode": result.get("strategy_mode"),
         "latest": latest,
+        "thresholds": {
+            "buy_threshold": jsonable(cfg.get("buy_threshold", result.get("buy_threshold", 0.6))),
+            "sell_threshold": jsonable(cfg.get("sell_threshold", result.get("sell_threshold", 0.4))),
+        },
         "metrics": {
             "technical_test_accuracy": jsonable(result.get("technical_test_accuracy")),
             "walk_forward_mean_accuracy": jsonable(result.get("walk_forward_mean_accuracy")),

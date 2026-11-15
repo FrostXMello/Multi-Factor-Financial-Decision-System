@@ -184,6 +184,10 @@ cd frontend && npm install && npm run dev
 
 See [`API.md`](API.md) for endpoints, Vercel notes (`VITE_API_BASE_URL`), and deploy guidance. Streamlit (`app.py`) remains the academic single-process demo path.
 
+## AI explainability (M6)
+
+`reasoning/` explains BUY / SELL / HOLD from structured research and risk outputs. An optional OpenAI-compatible provider can polish narratives when `AI_REASONING_API_KEY` and `AI_REASONING_BASE_URL` are set; otherwise a deterministic explanation is returned. The assistant cannot invent missing market numbers and cannot override signals, risk gates, or orders. The React **AI Explainability** page shows summaries, factors, warnings, confidence interpretation, and supporting data from the API.
+
 ## Notes
 
 - This project intentionally combines Macro + Micro + Fusion + Optimizer + Intraday layers; this improves flexibility but can increase over-engineering risk if not validated with strict out-of-sample testing.

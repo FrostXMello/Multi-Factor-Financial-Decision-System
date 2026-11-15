@@ -40,8 +40,24 @@ Vite proxies `/api` to `http://127.0.0.1:8000`. For Vercel, set `VITE_API_BASE_U
 | POST | `/api/paper/demo/run` | Deterministic demo workflow |
 | POST | `/api/paper/reset` | Reset paper or demo account |
 | GET | `/api/diagnostics` | Env checklist (secrets hidden) |
+| GET | `/api/explain/status` | AI provider configured? (no secrets) |
+| POST | `/api/explain/decision` | Explain latest research decision |
+| GET | `/api/explain/last` | Cached explanation |
+| POST | `/api/explain/risk-block` | Explain a risk rejection |
 
 Demo responses set `demo_labelled: true` and use account id `demo:academic`.
+
+## AI explainability (M6)
+
+`reasoning/` builds structured JSON explanations from model/risk fields only.
+
+- Deterministic fallback always works without an API key.
+- Optional LLM: set `AI_REASONING_BASE_URL` + `AI_REASONING_API_KEY` (+ optional model/path).
+- The LLM may rewrite narrative text; locked `decision.signal` / risk outcomes cannot change.
+- Provider failures and malformed payloads fall back to the deterministic explanation.
+- API keys are never returned to the frontend.
+
+Limitations: sector context is included only when the caller supplies it; missing indicators stay `unavailable` and are never invented. Model probability is explicitly not treated as probability of profit.
 
 ## Deploy notes
 

@@ -18,10 +18,14 @@ def client(tmp_path, monkeypatch):
     monkeypatch.delenv("BROKER_ACCESS_TOKEN", raising=False)
 
     from api.deps import clear_store_caches
+    from api.routes_explain import clear_explain_cache
     from api.routes_research import clear_research_cache
 
     clear_store_caches()
     clear_research_cache()
+    clear_explain_cache()
+    monkeypatch.delenv("AI_REASONING_API_KEY", raising=False)
+    monkeypatch.delenv("AI_REASONING_BASE_URL", raising=False)
 
     from api.main import app
 
@@ -30,6 +34,7 @@ def client(tmp_path, monkeypatch):
 
     clear_store_caches()
     clear_research_cache()
+    clear_explain_cache()
 
 
 def test_health_and_overview_disable_broker_execution(client):
@@ -131,7 +136,28 @@ def test_research_last_empty_and_run_monkeypatched(client, monkeypatch):
     body = run.json()
     assert body["latest"]["signal"] == "BUY"
     assert body["reliability"]["evaluation"] == "walk_forward"
+    assert "explanation" in body
+    assert body["explanation"]["decision"]["signal"] == "BUY"
+    assert body["explanation"]["signal_lock"] is True
     last = client.get("/api/research/last").json()
     assert last["available"] is True
     rel = client.get("/api/research/reliability").json()
     assert rel["available"] is True
+    status = client.get("/api/explain/status").json()
+    assert status["configured"] is False
+    assert status["can_override_signals"] is False
+    explained = client.post("/api/explain/decision", json={"use_llm": False, "use_last_research": True})
+    assert explained.status_code == 200
+    assert explained.json()["decision"]["signal"] == "BUY"
+    blocked = client.post(
+        "/api/explain/risk-block",
+        json={
+            "ticker": "RELIANCE.NS",
+            "side": "BUY",
+            "reason": "Insufficient cash: need 1000, available 10.",
+            "quantity": 1,
+        },
+    )
+    assert blocked.status_code == 200
+    assert blocked.json()["decision"]["risk_blocked"] is True
+

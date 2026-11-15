@@ -35,6 +35,28 @@ def research_run(body: ResearchRunBody) -> dict:
     summary = summarize_research(result)
     _LAST_RESULT["summary"] = summary
     _LAST_RESULT["ticker"] = ticker
+    try:
+        from api.routes_explain import _LAST_EXPLANATION
+        from reasoning.service import ExplainRequest, explain_decision
+
+        explanation = explain_decision(
+            ExplainRequest(
+                ticker=ticker,
+                latest=dict(summary.get("latest") or {}),
+                reliability=dict(summary.get("reliability") or {}),
+                metrics=dict(summary.get("metrics") or {}),
+                strategy_mode=summary.get("strategy_mode"),
+                buy_threshold=(summary.get("thresholds") or {}).get("buy_threshold", 0.6),
+                sell_threshold=(summary.get("thresholds") or {}).get("sell_threshold", 0.4),
+                use_llm=True,
+            )
+        )
+        _LAST_EXPLANATION["payload"] = explanation
+        summary = dict(summary)
+        summary["explanation"] = explanation
+    except Exception as exc:  # noqa: BLE001 - research must still return if explain fails
+        summary = dict(summary)
+        summary["explanation_error"] = str(exc)
     return summary
 
 

@@ -70,6 +70,9 @@ def diagnostics() -> dict:
         "BROKER_ACCESS_TOKEN",
         "PAPER_TRADING_DB",
         "API_CORS_ORIGINS",
+        "AI_REASONING_BASE_URL",
+        "AI_REASONING_API_KEY",
+        "AI_REASONING_MODEL",
     ]
     env = []
     for key in keys:
@@ -82,9 +85,12 @@ def diagnostics() -> dict:
                 "display": "«configured, value hidden»" if raw and secret else (raw or "empty"),
             }
         )
+    from reasoning.service import provider_status
+
     return {
         "environment": env,
         "market_store": jsonable(get_market_store().stats()),
         "paper_store": jsonable(get_paper_store().stats()),
         "broker_execution_enabled": False,
+        "ai_reasoning": provider_status(),
     }
