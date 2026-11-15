@@ -24,6 +24,9 @@ class ModelConfig:
     # Label horizon. Training rows whose forward window reaches the test period are dropped.
     horizon_bars: int = 1
     embargo: bool = True
+    # Estimator size. Defaults match the previous fixed HistGradientBoosting / forest settings.
+    max_iter: int = 250
+    n_estimators: int = 300
 
 
 @dataclass
@@ -94,7 +97,7 @@ def _build_classifier(cfg: ModelConfig):
         )
     if model_type in ("rf", "randomforest", "random_forest"):
         return RandomForestClassifier(
-            n_estimators=300,
+            n_estimators=int(cfg.n_estimators),
             random_state=cfg.random_state,
             n_jobs=-1,
             class_weight="balanced",
@@ -103,7 +106,7 @@ def _build_classifier(cfg: ModelConfig):
         return HistGradientBoostingClassifier(
             learning_rate=0.05,
             max_depth=4,
-            max_iter=250,
+            max_iter=int(cfg.max_iter),
             random_state=cfg.random_state,
         )
     raise ValueError("model_type must be 'logreg', 'rf', or 'gb'")
