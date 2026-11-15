@@ -373,68 +373,50 @@ export function PortfolioPage() {
 export function BacktestingPage() {
   const defaults = useLoad(() => api.backtestDefaults())
   const symbols = useLoad(() => api.backtestSymbols())
-  const saved = useLoad(() => api.backtestRuns())
   const [ticker, setTicker] = useState('RELIANCE.NS')
+  const [filter, setFilter] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [capital, setCapital] = useState(100000)
-  const [buyTh, setBuyTh] = useState(0.6)
-  const [sellTh, setSellTh] = useState(0.4)
-  const [brokerage, setBrokerage] = useState(0.0003)
-  const [sttBuy, setSttBuy] = useState(0.001)
-  const [sttSell, setSttSell] = useState(0.001)
-  const [slippage, setSlippage] = useState(5)
-  const [segment, setSegment] = useState('equity_delivery')
-  const [posSize, setPosSize] = useState(1)
-  const [minPos, setMinPos] = useState(0.18)
-  const [volStop, setVolStop] = useState(0.07)
-  const [ddStop, setDdStop] = useState(0.2)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<Record<string, unknown> | null>(null)
-  const [compareIds, setCompareIds] = useState<number[]>([])
-  const [compare, setCompare] = useState<Record<string, unknown> | null>(null)
+  const [sim, setSim] = useState<Record<string, unknown> | null>(null)
+  const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null)
+  const candles = useLoad(() => api.marketCandles(ticker, 220), [ticker])
 
-  const metrics = (result?.metrics ?? {}) as Record<string, unknown>
-  const equity = (result?.equity_curve as Record<string, unknown>[]) ?? (result?.equity_tail as Record<string, unknown>[]) ?? []
-  const candleProxy = equity.map((row) => {
+  const universe = ((symbols.data?.symbols as string[]) ?? []).filter((s) =>
+    s.toLowerCase().includes(filter.trim().toLowerCase()),
+  )
+  const presets = (defaults.data?.strategy_presets as Record<string, unknown>[]) ?? []
+  const strategies = (sim?.strategies as Record<string, unknown>[]) ?? []
+  const buy = (sim?.buy_analysis as Record<string, unknown> | null) ?? null
+  const active =
+    strategies.find((s) => String(s.strategy_id) === selectedStrategy) ??
+    (sim?.best as Record<string, unknown> | null) ??
+    null
+  const activeMetrics = (active?.metrics ?? {}) as Record<string, unknown>
+  const equity = (active?.equity_tail as Record<string, unknown>[]) ?? []
+  const equityProxy = equity.map((row) => {
     const value = Number(row.equity)
-    return {
-      Date: row.date,
-      Open: value,
-      High: value,
-      Low: value,
-      Close: value,
-      Volume: 0,
-    }
+    return { Date: row.date, Open: value, High: value, Low: value, Close: value, Volume: 0 }
   })
 
-  const run = async (event: FormEvent) => {
-    event.preventDefault()
+  const runSimulation = async (event?: FormEvent) => {
+    event?.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      const summary = await api.backtestRun({
+      const payload = await api.backtestSimulateStrategies({
         ticker,
         start: start || null,
         end: end || null,
         initial_capital: capital,
-        buy_threshold: buyTh,
-        sell_threshold: sellTh,
-        cost_segment: segment,
-        brokerage_rate: brokerage,
-        stt_buy_rate: sttBuy,
-        stt_sell_rate: sttSell,
-        slippage_bps: slippage,
-        base_position_size: posSize,
-        min_position_size: minPos,
-        hard_vol_stop: volStop,
-        hard_drawdown_stop: ddStop,
+        cost_segment: 'equity_delivery',
         save: true,
-        label: `${ticker} manual`,
       })
-      setResult(summary)
-      await saved.reload()
+      setSim(payload)
+      setSelectedStrategy(String((payload.best as Record<string, unknown> | undefined)?.strategy_id ?? ''))
+      await candles.reload()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -442,165 +424,200 @@ export function BacktestingPage() {
     }
   }
 
-  const toggleCompare = (id: number) => {
-    setCompareIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(0, 6)))
-  }
-
-  const runCompare = async () => {
-    setCompare(await api.backtestCompare(compareIds))
-  }
-
   return (
     <>
       <PageHeader
         title="Backtesting"
-        subtitle="Historical simulations on stored / Yahoo research data. No live execution."
+        subtitle="Pick any supported stock, simulate the five curated strategies, and read buy analysis."
         badges={<Badge label="HISTORICAL" tone="historical" />}
       />
       <EnvBanner
         mode="HISTORICAL RESEARCH"
-        detail={String(defaults.data?.lookahead_note ?? 'Purged evaluation and next-open fills are preserved.')}
+        detail={String(
+          defaults.data?.lookahead_note ??
+            'Five fixed sleeves are ranked with a predeclared score — not optimized on the test fold.',
+        )}
       />
 
-      <form className="toolbar" onSubmit={run}>
-        <label>
-          Ticker
-          <input list="bt-symbols" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
-          <datalist id="bt-symbols">
-            {((symbols.data?.symbols as string[]) ?? []).map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        </label>
-        <label>
-          Start
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-        </label>
-        <label>
-          End
-          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
-        </label>
-        <label>
-          Capital
-          <input type="number" min={1000} value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
-        </label>
-        <button type="submit" disabled={busy}>
-          {busy ? 'Running…' : 'Run backtest'}
-        </button>
-      </form>
-
-      <Expandable title="Strategy & risk parameters" subtitle="manual bounds only — optimizer disabled">
+      <Section title="1. Select stock" subtitle={String(symbols.data?.detail ?? 'NIFTY50 + stored symbols')}>
         <div className="toolbar">
           <label>
-            Buy threshold
-            <input type="number" step={0.01} min={0.5} max={0.95} value={buyTh} onChange={(e) => setBuyTh(Number(e.target.value))} />
+            Search
+            <input value={filter} onChange={(e) => setFilter(e.target.value.toUpperCase())} placeholder="RELIANCE" />
           </label>
           <label>
-            Sell threshold
-            <input type="number" step={0.01} min={0.05} max={0.5} value={sellTh} onChange={(e) => setSellTh(Number(e.target.value))} />
+            Selected
+            <input value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
           </label>
           <label>
-            Base position
-            <input type="number" step={0.05} min={0.05} max={1} value={posSize} onChange={(e) => setPosSize(Number(e.target.value))} />
+            Start
+            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
           </label>
           <label>
-            Min position
-            <input type="number" step={0.01} min={0} max={1} value={minPos} onChange={(e) => setMinPos(Number(e.target.value))} />
+            End
+            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
           </label>
           <label>
-            Vol stop
-            <input type="number" step={0.01} min={0.01} max={1} value={volStop} onChange={(e) => setVolStop(Number(e.target.value))} />
-          </label>
-          <label>
-            Drawdown stop
-            <input type="number" step={0.01} min={0.01} max={1} value={ddStop} onChange={(e) => setDdStop(Number(e.target.value))} />
+            Capital
+            <input type="number" min={1000} value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
           </label>
         </div>
-      </Expandable>
+        <div className="stock-grid">
+          {universe.slice(0, 60).map((symbol) => (
+            <button
+              key={symbol}
+              type="button"
+              className={`stock-chip${symbol === ticker ? ' active' : ''}`}
+              onClick={() => setTicker(symbol)}
+            >
+              {symbol.replace('.NS', '')}
+            </button>
+          ))}
+          {!universe.length && <p className="muted">No symbols matched.</p>}
+        </div>
+      </Section>
 
-      <Expandable title="Costs" subtitle="brokerage · STT · slippage">
-        <div className="toolbar">
-          <label>
-            Segment
-            <select value={segment} onChange={(e) => setSegment(e.target.value)}>
-              <option value="equity_delivery">equity_delivery</option>
-              <option value="equity_intraday">equity_intraday</option>
-              <option value="zero">zero</option>
-            </select>
-          </label>
-          <label>
-            Brokerage
-            <input type="number" step={0.0001} min={0} value={brokerage} onChange={(e) => setBrokerage(Number(e.target.value))} />
-          </label>
-          <label>
-            STT buy
-            <input type="number" step={0.0001} min={0} value={sttBuy} onChange={(e) => setSttBuy(Number(e.target.value))} />
-          </label>
-          <label>
-            STT sell
-            <input type="number" step={0.0001} min={0} value={sttSell} onChange={(e) => setSttSell(Number(e.target.value))} />
-          </label>
-          <label>
-            Slippage bps
-            <input type="number" step={1} min={0} value={slippage} onChange={(e) => setSlippage(Number(e.target.value))} />
-          </label>
+      <Section
+        title="2. Five strategies"
+        subtitle="Technical Trend · Technical Conservative · Momentum · Mean Reversion · Multi-Factor"
+        actions={
+          <button type="button" onClick={() => void runSimulation()} disabled={busy || !ticker}>
+            {busy ? 'Simulating 5 strategies…' : `Simulate 5 strategies on ${ticker}`}
+          </button>
+        }
+      >
+        <div className="strategy-grid">
+          {presets.map((preset) => (
+            <div key={String(preset.id)} className="strategy-card">
+              <strong>{String(preset.label)}</strong>
+              <p className="muted tiny">{String(preset.blurb)}</p>
+              <p className="mono tiny">
+                buy≥{String(preset.buy_threshold)} · sell≤{String(preset.sell_threshold)}
+              </p>
+            </div>
+          ))}
+          {!presets.length && (
+            <p className="muted">Presets load from `/api/backtest/defaults` once the API is reachable.</p>
+          )}
         </div>
-      </Expandable>
+      </Section>
 
       {error && <ErrorState message={error} />}
+      {busy && <LoadingState label={`Running five historical simulations on ${ticker}…`} />}
 
-      {result && (
+      {sim && (
         <>
-          <Section title="Results" subtitle={`${String(result.ticker)} · ${String(result.freshness ?? 'historical')}`} actions={<SignalBadge signal={(result.latest as Record<string, unknown>)?.signal} />}>
-            <div className="metric-strip">
-              <Metric label="Net return %" value={String(metrics.net_return_pct ?? '—')} />
-              <Metric label="CAGR %" value={String(metrics.cagr_pct ?? '—')} />
-              <Metric label="Sharpe" value={String(metrics.sharpe ?? '—')} />
-              <Metric label="Max DD %" value={String(metrics.max_drawdown_pct ?? metrics.max_drawdown ?? '—')} />
-              <Metric label="Win rate" value={metrics.win_rate == null ? '—' : pct(metrics.win_rate)} />
-              <Metric label="Trades" value={String(metrics.trades ?? '—')} />
-              <Metric label="Final value" value={money(metrics.final_portfolio_value)} />
-              <Metric label="Costs" value={money(metrics.total_transaction_costs)} />
+          <Section title="3. Strategy ranking" subtitle={String(sim.ranking_note ?? '')}>
+            <div className="candidate-list">
+              {strategies.map((row) => {
+                const id = String(row.strategy_id)
+                const activeRow = id === String(active?.strategy_id ?? '')
+                const m = (row.metrics as Record<string, unknown>) ?? {}
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`candidate-row${activeRow ? ' active' : ''}`}
+                    onClick={() => setSelectedStrategy(id)}
+                  >
+                    <span>
+                      <strong>#{String(row.rank)} {String(row.label)}</strong>
+                      <span className="muted tiny"> · score {Number(row.rank_score ?? 0).toFixed(3)}</span>
+                    </span>
+                    <SignalBadge signal={row.signal} />
+                    <span className="mono tiny">net {String(m.net_return_pct ?? '—')}%</span>
+                    <span className="mono tiny">Sharpe {String(m.sharpe ?? '—')}</span>
+                  </button>
+                )
+              })}
             </div>
+            {!!(sim.errors as unknown[] | undefined)?.length && (
+              <Expandable title="Strategies that failed">
+                <pre className="code-block">{JSON.stringify(sim.errors, null, 2)}</pre>
+              </Expandable>
+            )}
           </Section>
 
-          <Section title="Equity curve" subtitle="Interactive chart of simulated portfolio equity">
-            <CandleChart rows={candleProxy} height={280} showMa20={false} showMa50={false} freshness="historical" detail="Equity path (close=equity)" />
-          </Section>
+          {buy?.available ? (
+            <Section
+              title="4. Why buy / why caution"
+              subtitle={`${String(buy.ticker)} · best sleeve ${String(buy.best_strategy)}`}
+              actions={<Badge label={String(buy.recommendation ?? '')} tone={String(buy.latest_signal) === 'BUY' ? 'buy' : 'hold'} />}
+            >
+              <div className="layout-split">
+                <div>
+                  <h4 className="subtle-title">Supporting buy case</h4>
+                  <ul className="reason-list">
+                    {((buy.why_buy as string[]) ?? []).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                    {!((buy.why_buy as string[]) ?? []).length && <li className="muted">No active buy supports.</li>}
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="subtle-title">Risk / invalidation</h4>
+                  <ul className="reason-list caution">
+                    {((buy.why_caution as string[]) ?? []).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              {(buy.explanation as Record<string, unknown>)?.summary ? (
+                <div className="ai-insight compact" style={{ marginTop: '0.85rem' }}>
+                  <span className="ai-kicker">AI explanation · does not override signal</span>
+                  <p className="ai-summary">{String((buy.explanation as Record<string, unknown>).summary)}</p>
+                  {(buy.explanation as Record<string, unknown>).confidence_interpretation ? (
+                    <p className="muted">
+                      {String((buy.explanation as Record<string, unknown>).confidence_interpretation)}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              <p className="muted tiny">{String(buy.note ?? '')}</p>
+            </Section>
+          ) : null}
 
-          <Expandable title="Trades" defaultOpen>
-            <Table rows={(result.trades_tail as Record<string, unknown>[]) ?? []} empty="No trades." />
-          </Expandable>
-
-          <Expandable title="Reliability / walk-forward">
-            <pre className="code-block">{JSON.stringify(result.reliability ?? {}, null, 2)}</pre>
-          </Expandable>
+          {active && (
+            <Section
+              title={`5. Detail · ${String(active.label)}`}
+              subtitle="Selected strategy metrics, chart and trades"
+              actions={<SignalBadge signal={active.signal} />}
+            >
+              <div className="metric-strip">
+                <Metric label="Net return %" value={String(activeMetrics.net_return_pct ?? '—')} />
+                <Metric label="CAGR %" value={String(activeMetrics.cagr_pct ?? '—')} />
+                <Metric label="Sharpe" value={String(activeMetrics.sharpe ?? '—')} />
+                <Metric
+                  label="Max DD %"
+                  value={String(activeMetrics.max_drawdown_pct ?? activeMetrics.max_drawdown ?? '—')}
+                />
+                <Metric label="Win rate" value={activeMetrics.win_rate == null ? '—' : pct(activeMetrics.win_rate)} />
+                <Metric label="Trades" value={String(activeMetrics.trades ?? '—')} />
+                <Metric label="Final value" value={money(activeMetrics.final_portfolio_value)} />
+                <Metric label="Probability" value={active.proba == null ? '—' : String(active.proba)} />
+              </div>
+              <CandleChart
+                rows={
+                  equityProxy.length
+                    ? equityProxy
+                    : ((candles.data?.candles as Record<string, unknown>[]) ?? [])
+                }
+                height={280}
+                showMa20={equityProxy.length === 0}
+                showMa50={equityProxy.length === 0}
+                freshness="historical"
+                detail={equityProxy.length ? 'Simulated equity path' : `${ticker} stored price history`}
+              />
+              <Expandable title="Trades" defaultOpen>
+                <Table rows={(active.trades_tail as Record<string, unknown>[]) ?? []} empty="No trades." />
+              </Expandable>
+            </Section>
+          )}
         </>
       )}
 
-      <Expandable title="Saved research runs" subtitle="compare configurations">
-        <Table rows={((saved.data?.runs as Record<string, unknown>[]) ?? []).map((r) => ({
-          id: r.id,
-          ticker: r.ticker,
-          label: r.label,
-          created_at: r.created_at,
-          freshness: r.freshness,
-          select: compareIds.includes(Number(r.id)) ? 'yes' : 'no',
-        }))} empty="No saved runs yet." />
-        <div className="toolbar">
-          {((saved.data?.runs as Record<string, unknown>[]) ?? []).slice(0, 8).map((r) => (
-            <button key={String(r.id)} type="button" className="ghost" onClick={() => toggleCompare(Number(r.id))}>
-              {compareIds.includes(Number(r.id)) ? '✓' : '+'} #{String(r.id)} {String(r.ticker)}
-            </button>
-          ))}
-          <button type="button" onClick={() => void runCompare()} disabled={!compareIds.length}>
-            Compare selected
-          </button>
-        </div>
-        {compare && <pre className="code-block">{JSON.stringify(compare.comparisons ?? compare, null, 2)}</pre>}
-      </Expandable>
-
-      <AiInsight contextLabel="backtesting" />
+      <AiInsight contextLabel="backtesting buy analysis" />
     </>
   )
 }

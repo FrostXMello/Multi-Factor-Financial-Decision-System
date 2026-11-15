@@ -471,6 +471,56 @@ input:focus, select:focus {
   border-color: rgba(139, 124, 247, 0.55);
   background: var(--accent-soft);
 }
+
+.stock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 0.4rem;
+}
+.stock-chip {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.45rem 0.35rem;
+  font-size: 0.78rem;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.stock-chip:hover { border-color: rgba(139, 124, 247, 0.45); background: var(--bg-hover); }
+.stock-chip.active {
+  border-color: rgba(139, 124, 247, 0.55);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.55rem;
+}
+.strategy-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.7rem 0.75rem;
+  background: var(--bg);
+}
+.strategy-card strong { display: block; margin-bottom: 0.25rem; font-size: 0.88rem; }
+.subtle-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.reason-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text);
+}
+.reason-list.caution { color: #fecaca; }
+.reason-list li { margin-bottom: 0.35rem; }
 .lock-panel h3 { margin: 0.35rem 0 0.5rem; }
 .lock-panel p { margin: 0 auto 1rem; max-width: 62ch; color: var(--muted); }
 .lock-icon {

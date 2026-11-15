@@ -179,9 +179,19 @@ def _run_four_model_pipeline_with_data(
     if TECHNICAL_MODE or CORE_MODE:
         compute_walk_forward = False
 
-    strategy_key = normalize_strategy_mode(cfg.strategy_mode)
-    if TECHNICAL_MODE:
+    raw_mode = str(cfg.strategy_mode or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if raw_mode in {"technical_only", "technical"}:
         strategy_key = "technical_only"
+    elif TECHNICAL_MODE and not cfg.manual_overrides:
+        # Default product path stays technical-only unless the Backtesting UI opts in.
+        strategy_key = "technical_only"
+    else:
+        strategy_key = normalize_strategy_mode(cfg.strategy_mode)
+
+    # `compute_walk_forward` only gates the older walk_forward_validate helper.
+    # technical_only uses evaluate_walk_forward below regardless.
+    if TECHNICAL_MODE or CORE_MODE:
+        compute_walk_forward = False
     elif strategy_key != STRATEGY_MULTI_FACTOR:
         compute_walk_forward = False
 
@@ -190,7 +200,7 @@ def _run_four_model_pipeline_with_data(
 
     prices = timeframe_data[cfg.base_interval]
 
-    if TECHNICAL_MODE:
+    if strategy_key == "technical_only":
         # Price-only feature matrix + forward horizon label (meaningful move, not 1-bar noise).
         model_df, technical_feature_cols = build_multi_timeframe_dataset(
             timeframe_data,
@@ -211,7 +221,7 @@ def _run_four_model_pipeline_with_data(
                 base_interval=cfg.base_interval,
                 context_intervals=cfg.context_intervals,
                 horizon_bars=cfg.horizon_bars,
-                core_mode=CORE_MODE,
+                core_mode=CORE_MODE and not cfg.manual_overrides,
                 strategy_mode=strategy_key,
                 technical_only=False,
             ),
@@ -246,7 +256,7 @@ def _run_four_model_pipeline_with_data(
         "This path reports the chronological holdout. Walk-forward probabilities are the technical-mode decision source."
     )
 
-    if TECHNICAL_MODE:
+    if strategy_key == "technical_only":
         # Purged walk-forward is the probability source. The holdout model above stays a diagnostic.
         n_folds = int(cfg.walk_forward_folds)
         n_repeats = int(cfg.permutation_repeats)

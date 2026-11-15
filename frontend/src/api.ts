@@ -128,6 +128,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  backtestSimulateStrategies: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/api/backtest/simulate-strategies', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   backtestRuns: () => request<Record<string, unknown>>('/api/backtest/runs'),
   backtestRunGet: (id: number) => request<Record<string, unknown>>(`/api/backtest/runs/${id}`),
   backtestCompare: (run_ids: number[]) =>

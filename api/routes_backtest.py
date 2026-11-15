@@ -13,8 +13,72 @@ from core_config import CORE_BUY_THRESHOLD, CORE_SELL_THRESHOLD, CORE_RISK_CONFI
 from four_model_pipeline import FourModelConfig, run_four_model_pipeline
 from risk_model import RiskConfig
 from transaction_costs import IndiaEquityCostConfig, cost_config_for_segment
+from utils import NIFTY50_TICKERS
 
 router = APIRouter(prefix="/api/backtest", tags=["backtesting"])
+
+# Curated sleeves shown in the Backtesting panel. Not an optimizer search.
+STRATEGY_PRESETS: list[dict[str, Any]] = [
+    {
+        "id": "technical_trend",
+        "label": "Technical Trend",
+        "mode": "technical_only",
+        "buy_threshold": 0.60,
+        "sell_threshold": 0.40,
+        "blurb": "Walk-forward P(up) with Close vs MA50 confirmation.",
+    },
+    {
+        "id": "technical_conservative",
+        "label": "Technical Conservative",
+        "mode": "technical_only",
+        "buy_threshold": 0.70,
+        "sell_threshold": 0.30,
+        "blurb": "Stricter probability gates — fewer, higher-conviction trades.",
+    },
+    {
+        "id": "momentum",
+        "label": "Momentum",
+        "mode": "momentum",
+        "buy_threshold": 0.60,
+        "sell_threshold": 0.40,
+        "blurb": "Trend-following: bullish model + MA structure + RSI band.",
+    },
+    {
+        "id": "mean_reversion",
+        "label": "Mean Reversion",
+        "mode": "mean_reversion",
+        "buy_threshold": 0.60,
+        "sell_threshold": 0.40,
+        "blurb": "Snap-back sleeve when price stretches vs a short mean (Z-score).",
+    },
+    {
+        "id": "multi_factor",
+        "label": "Multi-Factor",
+        "mode": "multi_factor",
+        "buy_threshold": 0.60,
+        "sell_threshold": 0.40,
+        "blurb": "Technical + macro blend from the existing fusion path.",
+    },
+]
+
+
+def _finite(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number != number:  # NaN
+        return default
+    return number
+
+
+def _rank_score(metrics: dict[str, Any]) -> float:
+    """Predeclared ranking blend — not tuned on the test fold."""
+    sharpe = _finite(metrics.get("sharpe"))
+    net = _finite(metrics.get("net_return_pct")) / 100.0
+    dd = abs(_finite(metrics.get("max_drawdown_pct"), _finite(metrics.get("max_drawdown")))) / 100.0
+    win = _finite(metrics.get("win_rate"), 0.5)
+    return float(0.40 * sharpe + 0.30 * net + 0.20 * (1.0 - min(dd, 1.0)) + 0.10 * win)
 
 
 class BacktestRunBody(BaseModel):
@@ -61,6 +125,7 @@ def backtest_defaults() -> dict:
         "initial_capital": 100_000.0,
         "timeframe": "1d",
         "strategy_modes": ["technical_only", "multi_factor", "momentum", "mean_reversion"],
+        "strategy_presets": STRATEGY_PRESETS,
         "cost_segments": ["equity_delivery", "equity_intraday", "zero"],
         "costs": {
             "brokerage_rate": delivery.brokerage_rate,
@@ -120,12 +185,17 @@ def backtest_symbols() -> dict:
         ]
     except Exception as exc:  # noqa: BLE001
         return {"symbols": [], "coverage": [], "detail": str(exc)}
-    symbols = sorted({row["symbol"] for row in coverage})
+    stored = {row["symbol"] for row in coverage}
+    universe = sorted(set(NIFTY50_TICKERS) | stored)
     return {
-        "symbols": symbols,
+        "symbols": universe,
+        "stored_symbols": sorted(stored),
         "coverage": coverage,
         "freshness": "historical",
-        "detail": "Symbols with stored OHLCV. Research runs can also download missing Yahoo history.",
+        "detail": (
+            "NIFTY50 selection list plus any locally stored symbols. "
+            "Missing history is downloaded from Yahoo (delayed) on first run."
+        ),
     }
 
 
@@ -234,6 +304,199 @@ def backtest_run(body: BacktestRunBody) -> dict:
         pass
 
     return summary
+
+
+class SimulateStrategiesBody(BaseModel):
+    ticker: str = Field(default="RELIANCE.NS", min_length=1)
+    start: Optional[str] = None
+    end: Optional[str] = None
+    initial_capital: float = Field(default=100_000.0, gt=0, le=100_000_000)
+    cost_segment: str = Field(default="equity_delivery")
+    save: bool = True
+
+
+@router.post("/simulate-strategies")
+def backtest_simulate_strategies(body: SimulateStrategiesBody) -> dict:
+    """
+    Run the five curated strategy sleeves on one ticker and explain the best setup.
+
+    Ranking uses a predeclared score. This is not parameter search on test folds.
+    """
+    ticker = body.ticker.strip().upper()
+    cost_cfg = cost_config_for_segment(body.cost_segment)
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+
+    for preset in STRATEGY_PRESETS:
+        cfg = FourModelConfig(
+            initial_capital=float(body.initial_capital),
+            buy_threshold=float(preset["buy_threshold"]),
+            sell_threshold=float(preset["sell_threshold"]),
+            strategy_mode=str(preset["mode"]),
+            risk_config=CORE_RISK_CONFIG,
+            cost_config=cost_cfg,
+            manual_overrides=True,
+        )
+        try:
+            raw = run_four_model_pipeline(ticker, cfg, start=body.start, end=body.end)
+            summary = dict(summarize_research({**raw, "ticker": ticker}))
+            metrics = dict(summary.get("metrics") or {})
+            latest = dict(summary.get("latest") or {})
+            score = _rank_score(metrics)
+            entry = {
+                "strategy_id": preset["id"],
+                "label": preset["label"],
+                "blurb": preset["blurb"],
+                "mode": preset["mode"],
+                "buy_threshold": preset["buy_threshold"],
+                "sell_threshold": preset["sell_threshold"],
+                "rank_score": score,
+                "signal": latest.get("signal"),
+                "proba": latest.get("proba"),
+                "no_trade": latest.get("no_trade"),
+                "metrics": metrics,
+                "latest": latest,
+                "reliability": summary.get("reliability"),
+                "trades_tail": summary.get("trades_tail"),
+                "equity_tail": summary.get("equity_tail"),
+                "disclaimer": summary.get("disclaimer"),
+            }
+            if body.save:
+                entry["saved_run_id"] = get_scan_store().save_backtest(
+                    ticker=ticker,
+                    label=f"{ticker} · {preset['label']}",
+                    params={
+                        "ticker": ticker,
+                        "strategy_id": preset["id"],
+                        "mode": preset["mode"],
+                        "buy_threshold": preset["buy_threshold"],
+                        "sell_threshold": preset["sell_threshold"],
+                        "initial_capital": body.initial_capital,
+                        "start": body.start,
+                        "end": body.end,
+                    },
+                    summary={**summary, "strategy_id": preset["id"], "rank_score": score},
+                    freshness="historical",
+                )
+            results.append(entry)
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"strategy_id": str(preset["id"]), "label": str(preset["label"]), "error": str(exc)})
+
+    results.sort(key=lambda row: float(row.get("rank_score") or -1e9), reverse=True)
+    for idx, row in enumerate(results, start=1):
+        row["rank"] = idx
+
+    best = results[0] if results else None
+    buy_analysis: dict[str, Any] = {
+        "available": False,
+        "detail": "No successful strategy runs to explain.",
+    }
+    if best:
+        latest = dict(best.get("latest") or {})
+        signal = str(latest.get("signal") or "HOLD").upper()
+        why_buy: list[str] = []
+        why_not: list[str] = []
+        if signal == "BUY":
+            why_buy.append(
+                f"{best['label']} currently issues BUY with model probability {latest.get('proba')}."
+            )
+        else:
+            why_not.append(
+                f"Best historical sleeve is {best['label']}, but the latest signal is {signal} — not an active BUY."
+            )
+        if latest.get("no_trade"):
+            why_not.append("Risk engine NoTrade gate is active — new BUYs are blocked.")
+        if latest.get("ma50") is not None and latest.get("close") is not None:
+            try:
+                if float(latest["close"]) >= float(latest["ma50"]):
+                    why_buy.append("Close is at/above MA50 (trend confirmation for technical sleeves).")
+                else:
+                    why_not.append("Close is below MA50 — trend confirmation is weak.")
+            except (TypeError, ValueError):
+                pass
+        metrics = dict(best.get("metrics") or {})
+        if metrics.get("net_return_pct") is not None:
+            why_buy.append(
+                f"On historical simulation, net return was {metrics.get('net_return_pct')}% "
+                f"with Sharpe {metrics.get('sharpe')} (delayed/historical data)."
+            )
+        if metrics.get("max_drawdown_pct") is not None or metrics.get("max_drawdown") is not None:
+            why_not.append(
+                f"Observe drawdown risk: max DD {metrics.get('max_drawdown_pct') or metrics.get('max_drawdown')}."
+            )
+
+        explanation = None
+        try:
+            from reasoning.service import ExplainRequest, explain_decision
+
+            explanation = explain_decision(
+                ExplainRequest(
+                    ticker=ticker,
+                    latest=latest,
+                    reliability=dict(best.get("reliability") or {}),
+                    metrics=metrics,
+                    strategy_mode=str(best.get("mode")),
+                    buy_threshold=float(best.get("buy_threshold") or 0.6),
+                    sell_threshold=float(best.get("sell_threshold") or 0.4),
+                    use_llm=True,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            explanation = {"summary": f"Explanation fallback unavailable: {exc}", "mode": "error"}
+
+        buy_analysis = {
+            "available": True,
+            "ticker": ticker,
+            "best_strategy": best.get("label"),
+            "best_strategy_id": best.get("strategy_id"),
+            "latest_signal": signal,
+            "recommendation": (
+                "BUY candidate under best sleeve"
+                if signal == "BUY" and not latest.get("no_trade")
+                else "Do not treat as an active BUY right now"
+            ),
+            "why_buy": why_buy,
+            "why_caution": why_not,
+            "explanation": explanation,
+            "note": (
+                "AI explains structured model/risk outputs only. It cannot override signals. "
+                "History is delayed/Yahoo research data — not verified live."
+            ),
+        }
+
+        # Warm research cache for the contextual AI panel.
+        try:
+            from api.routes_research import _LAST_RESULT
+
+            _LAST_RESULT["summary"] = {
+                "ticker": ticker,
+                "latest": latest,
+                "metrics": metrics,
+                "reliability": best.get("reliability"),
+                "strategy_mode": best.get("mode"),
+                "thresholds": {
+                    "buy_threshold": best.get("buy_threshold"),
+                    "sell_threshold": best.get("sell_threshold"),
+                },
+            }
+            _LAST_RESULT["ticker"] = ticker
+        except Exception:
+            pass
+
+    return {
+        "ticker": ticker,
+        "freshness": "historical",
+        "data_mode": "HISTORICAL",
+        "broker_execution": False,
+        "ranking_note": (
+            "Strategies ranked by predeclared score: 0.4·Sharpe + 0.3·net return "
+            "+ 0.2·(1−|drawdown|) + 0.1·win rate. Not optimized on the test fold."
+        ),
+        "strategies": results,
+        "errors": errors,
+        "best": best,
+        "buy_analysis": buy_analysis,
+    }
 
 
 @router.get("/runs")

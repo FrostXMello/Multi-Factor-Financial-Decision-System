@@ -52,9 +52,67 @@ def test_backtest_defaults_and_symbols(client):
     assert defaults["freshness"] == "historical"
     assert "buy_threshold" in defaults
     assert "costs" in defaults
+    assert len(defaults["strategy_presets"]) == 5
     symbols = client.get("/api/backtest/symbols").json()
     assert "symbols" in symbols
+    assert "RELIANCE.NS" in symbols["symbols"]
     assert symbols["freshness"] == "historical"
+
+
+def test_simulate_strategies_ranks_five_and_explains(client, monkeypatch):
+    from api import routes_backtest as rb
+
+    def fake_run(ticker, cfg, start=None, end=None):
+        mode = getattr(cfg, "strategy_mode", "technical_only")
+        return {
+            "ticker": ticker,
+            "strategy_mode": mode,
+            "test_df": __import__("pandas").DataFrame(
+                [
+                    {
+                        "Date": "2024-01-02",
+                        "Close": 100.0,
+                        "MA50": 95.0,
+                        "Signal": "BUY",
+                        "Proba": 0.72,
+                        "RiskScore": 0.2,
+                        "PositionSize": 0.8,
+                        "NoTrade": False,
+                    }
+                ]
+            ),
+            "backtest": {
+                "final_portfolio_value": 110000.0,
+                "total_return_pct": 10.0,
+                "gross_return_pct": 11.0,
+                "total_transaction_costs": 100.0,
+                "max_drawdown_pct": -5.0,
+                "sharpe": 1.2,
+                "cagr_pct": 8.0,
+                "win_rate": 0.55,
+                "trades_df": __import__("pandas").DataFrame(),
+            },
+            "technical_test_accuracy": 0.6,
+            "walk_forward_mean_accuracy": 0.58,
+            "walk_forward_fold_scores": [0.5, 0.6],
+            "trades": 4,
+            "trades_per_day": 0.1,
+            "reliability": {"note": "test"},
+            "config": {"buy_threshold": cfg.buy_threshold, "sell_threshold": cfg.sell_threshold},
+        }
+
+    monkeypatch.setattr(rb, "run_four_model_pipeline", fake_run)
+    body = client.post(
+        "/api/backtest/simulate-strategies",
+        json={"ticker": "RELIANCE.NS", "save": False},
+    ).json()
+    assert body["broker_execution"] is False
+    assert body["freshness"] == "historical"
+    assert len(body["strategies"]) == 5
+    assert body["strategies"][0]["rank"] == 1
+    assert body["buy_analysis"]["available"] is True
+    assert body["buy_analysis"]["latest_signal"] == "BUY"
+    assert "why_buy" in body["buy_analysis"]
 
 
 def test_scan_store_persists_manual_result(client, monkeypatch):
