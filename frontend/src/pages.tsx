@@ -324,6 +324,134 @@ export function PaperPage() {
   )
 }
 
+export function AnalyticsPage() {
+  const status = useLoad(() => api.analyticsStatus())
+  const [symbol, setSymbol] = useState('RELIANCE.NS')
+  const [report, setReport] = useState<Record<string, unknown> | null>(null)
+  const [regimes, setRegimes] = useState<Record<string, unknown> | null>(null)
+  const [portfolio, setPortfolio] = useState<Record<string, unknown> | null>(null)
+  const [robustness, setRobustness] = useState<Record<string, unknown> | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const refresh = async () => {
+    setBusy(true)
+    setError(null)
+    const errors: string[] = []
+    try {
+      setReport(await api.analyticsReport(symbol))
+    } catch (err) {
+      setReport(null)
+      errors.push(err instanceof Error ? err.message : String(err))
+    }
+    try {
+      setRegimes(await api.analyticsRegimes({ symbol, lookback: 60 }))
+    } catch (err) {
+      setRegimes(null)
+      errors.push(err instanceof Error ? err.message : String(err))
+    }
+    try {
+      setPortfolio(await api.analyticsPortfolio({ mode: 'paper' }))
+    } catch (err) {
+      setPortfolio(null)
+      errors.push(err instanceof Error ? err.message : String(err))
+    }
+    try {
+      setRobustness(await api.analyticsRobustness({ use_last_research: true }))
+    } catch (err) {
+      setRobustness(null)
+      errors.push(err instanceof Error ? err.message : String(err))
+    }
+    if (errors.length) setError(errors.join(' | '))
+    setBusy(false)
+  }
+
+  const reportBody = (report?.report ?? null) as Record<string, unknown> | null
+
+  return (
+    <>
+      <div className="banner">
+        <h2>Strategy Research &amp; Portfolio Analytics</h2>
+        <p>
+          Regime classification, regime-conditioned performance, portfolio exposure and walk-forward robustness.
+          Metrics use stored/historical data only. Insufficient samples are labelled, not fabricated.
+        </p>
+      </div>
+      {status.data && <p className="muted">{String(status.data.note ?? '')}</p>}
+      <div className="row">
+        <label>
+          Symbol
+          <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} />
+        </label>
+        <button onClick={() => void refresh()} disabled={busy}>
+          {busy ? 'Loading…' : 'Refresh analytics'}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+      {regimes && (
+        <Panel title="Market regimes">
+          <div className="grid">
+            <Metric label="Latest regime" value={String((regimes.latest as Record<string, unknown>)?.regime_end_of_day ?? '—')} />
+            <Metric label="Trailing return" value={String((regimes.latest as Record<string, unknown>)?.trailing_return ?? '—')} />
+            <Metric label="Lookahead safe" value={String(regimes.lookahead_safe)} />
+            <Metric label="Lookback" value={String(regimes.lookback ?? '—')} />
+          </div>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>{JSON.stringify(regimes.counts ?? {}, null, 2)}</pre>
+        </Panel>
+      )}
+      {reportBody && (
+        <Panel title="Regime performance / weaknesses">
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>
+            {JSON.stringify(
+              {
+                regime_performance: reportBody.regime_performance,
+                weaknesses: reportBody.weaknesses,
+                unavailable: reportBody.unavailable,
+              },
+              null,
+              2,
+            )}
+          </pre>
+        </Panel>
+      )}
+      {portfolio && (
+        <Panel title="Portfolio allocation &amp; concentration">
+          <div className="grid">
+            <Metric label="NAV" value={money(portfolio.nav)} />
+            <Metric label="Invested" value={money(portfolio.invested)} />
+            <Metric label="HHI" value={String((portfolio.concentration as Record<string, unknown>)?.hhi ?? '—')} />
+            <Metric label="Top weight" value={pct((portfolio.concentration as Record<string, unknown>)?.top_weight)} />
+          </div>
+          <Table rows={(portfolio.allocation as Record<string, unknown>[]) ?? []} />
+          <Table rows={(portfolio.sector_exposure as Record<string, unknown>[]) ?? []} />
+        </Panel>
+      )}
+      {robustness && (
+        <Panel title="Walk-forward robustness">
+          <div className="grid">
+            <Metric label="Available" value={String(robustness.available)} />
+            <Metric label="Mean fold" value={String(robustness.mean ?? '—')} />
+            <Metric label="Std" value={String(robustness.std ?? '—')} />
+            <Metric label="Min fold" value={String(robustness.min ?? '—')} />
+          </div>
+          <p className="muted">{String(robustness.note ?? '')}</p>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>{JSON.stringify(robustness.weaknesses ?? [], null, 2)}</pre>
+        </Panel>
+      )}
+      {reportBody?.strategy_comparison ? (
+        <Panel title="Strategy comparison (net after costs)">
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>
+            {JSON.stringify(reportBody.strategy_comparison, null, 2)}
+          </pre>
+        </Panel>
+      ) : null}
+      <p className="disclaimer">
+        Analytics do not optimize against test folds. External market-data scrapers were not integrated for this milestone.
+      </p>
+    </>
+  )
+}
+
 export function ExplainPage() {
   const status = useLoad(() => api.explainStatus())
   const last = useLoad(() => api.explainLast())

@@ -72,4 +72,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  analyticsStatus: () => request<Record<string, unknown>>('/api/analytics/status'),
+  analyticsReport: (symbol?: string) =>
+    request<Record<string, unknown>>(
+      symbol ? `/api/analytics/report?symbol=${encodeURIComponent(symbol)}` : '/api/analytics/report',
+    ),
+  analyticsRegimes: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/api/analytics/regimes', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  analyticsPortfolio: (body: Record<string, unknown> = {}) =>
+    request<Record<string, unknown>>('/api/analytics/portfolio', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  analyticsRobustness: (body: Record<string, unknown> = {}) =>
+    request<Record<string, unknown>>('/api/analytics/robustness', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }
