@@ -333,74 +333,46 @@ def setup_footer(section, start=1):
     sect_pr.append(pg)
 
 
-def patch_cover_text(doc: Document):
-    """Replace placeholders inside the template cover VML/textbox paragraph."""
-    cover = doc.paragraphs[1]._p
-    nodes = cover.findall(f".//{{{W_NS}}}t")
-    texts = [n.text or "" for n in nodes]
-
-    def join_slice(a, b):
-        return "".join(texts[a:b + 1])
-
-    # TITLE_OF_PROJECT
-    for i in range(len(texts) - 1):
-        if texts[i] == "TITLE" and texts[i + 1] == "_OF_PROJECT":
-            nodes[i].text = TITLE
-            nodes[i + 1].text = ""
-            break
-
-    # <Student Name>
-    for i in range(len(texts) - 4):
-        if join_slice(i, i + 4) == "<Student Name>":
-            nodes[i].text = STUDENT
-            for j in range(i + 1, i + 5):
-                nodes[j].text = ""
-            break
-
-    # <Registration Number>
-    for i, t in enumerate(texts):
-        if t == "<Registration Number>":
-            nodes[i].text = REG_NO
-            break
-
-    # Guide Name -> keep template wording unless already fine
-    for i in range(len(texts) - 2):
-        if texts[i] == "Guide " and texts[i + 1] == "N" and texts[i + 2] == "ame":
-            nodes[i].text = GUIDE
-            nodes[i + 1].text = ""
-            nodes[i + 2].text = ""
-            break
-
-
-def clear_after_cover(doc: Document):
-    """Keep cover page elements; remove template guideline/body placeholders."""
-    body = doc.element.body
-    children = list(body)
-    # Keep paragraphs until and including "Nov 2026" paragraph, then drop the rest
-    # except sectPr at end.
-    keep_until = None
-    paras = [c for c in children if c.tag == qn("w:p")]
-    # Map paragraph element to index in body
-    for idx, child in enumerate(children):
-        if child.tag != qn("w:p"):
-            continue
-        text = "".join(child.itertext())
-        if "Nov" in text and "2026" in text:
-            keep_until = idx
-            break
-    if keep_until is None:
-        raise RuntimeError("Could not locate cover date paragraph in template")
-
-    for child in children[keep_until + 1 :]:
-        if child.tag == qn("w:sectPr"):
-            continue
-        body.remove(child)
-
-
 def add_page_break(doc):
     p = doc.add_paragraph()
     run = p.add_run()
     run.add_break(WD_BREAK.PAGE)
+
+
+def add_cover_page(doc: Document):
+    """Official MUJ cover layout using the template logo + clear editable text."""
+
+    def center_line(text: str, size: int = 12, bold: bool = False, after: int = 4, before: int = 0):
+        p = doc.add_paragraph()
+        fmt_para(p, align="center", before=before, after=after)
+        run = p.add_run(text)
+        set_run_font(run, size=size, bold=bold)
+        return p
+
+    if LOGO.exists():
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_after = Pt(10)
+        p.paragraph_format.space_before = Pt(6)
+        run = p.add_run()
+        run.add_picture(str(LOGO), width=Inches(3.2))
+
+    center_line("A Project Report on", 14, True, after=6, before=8)
+    center_line(TITLE, 16, True, after=10)
+    center_line(f"carried out as part of the {COURSE}", 12, False, after=4)
+    center_line("Submitted by", 12, False, after=4)
+    center_line(STUDENT, 13, True, after=2)
+    center_line(REG_NO, 12, True, after=8)
+    center_line("in partial fulfilment for the award of the degree of", 12, False, after=4)
+    center_line("Bachelor of Technology", 13, True, after=2)
+    center_line("in", 12, False, after=2)
+    center_line(DEGREE_LINE, 12, True, after=10)
+    center_line("Under the Guidance of", 12, False, after=4)
+    center_line(GUIDE, 13, True, after=18)
+    center_line(DEPT, 14, True, after=4)
+    center_line(UNIV, 14, True, after=4)
+    center_line(PLACE, 14, True, after=8)
+    center_line(DATE, 14, True, after=4)
 
 
 ABSTRACT_P1 = (
@@ -424,22 +396,20 @@ ABSTRACT_P2 = (
 
 
 def build_docx(diags: dict):
-    if not TEMPLATE.exists():
-        raise FileNotFoundError(TEMPLATE)
-
-    shutil.copy2(TEMPLATE, DOCX_OUT)
-    doc = Document(str(DOCX_OUT))
-
-    # Normalize section margins to 0.7"
+    # Fresh document with MUJ logo cover (avoids fragile template VML textboxes).
+    doc = Document()
     for section in doc.sections:
         set_margins(section)
-        # clear footers on front matter
         section.footer.is_linked_to_previous = False
         if section.footer.paragraphs:
             section.footer.paragraphs[0].clear()
 
-    patch_cover_text(doc)
-    clear_after_cover(doc)
+    normal = doc.styles["Normal"]
+    normal.font.name = "Times New Roman"
+    normal._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
+    normal.font.size = Pt(12)
+
+    add_cover_page(doc)
 
     # Front matter (no page numbers)
     add_page_break(doc)
@@ -764,20 +734,15 @@ def build_docx(diags: dict):
         "this university submission report.",
     )
 
-    # Ensure Normal style
-    normal = doc.styles["Normal"]
-    normal.font.name = "Times New Roman"
-    normal._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
-    normal.font.size = Pt(12)
-
     doc.save(DOCX_OUT)
 
-    # Verify cover filled
+    # Verify cover fields are plain visible paragraphs (not hidden VML).
     d2 = Document(str(DOCX_OUT))
-    cover_text = "".join(d2.paragraphs[1]._p.itertext())
+    cover_text = "\n".join(p.text for p in d2.paragraphs[:25])
     assert STUDENT in cover_text, cover_text
     assert REG_NO in cover_text, cover_text
-    assert "Multi-Factor" in cover_text or "Financial Decision" in cover_text, cover_text
+    assert GUIDE in cover_text, cover_text
+    assert TITLE in cover_text, cover_text
     return DOCX_OUT
 
 
@@ -1198,12 +1163,11 @@ def main():
     print(f"PDF pages: {total} (body from Introduction: {body_pages})")
     if total < 12:
         raise SystemExit("PDF below 12 pages")
-    # verify identity in docx cover
     doc = Document(str(DOCX_OUT))
-    cover = "".join(doc.paragraphs[1]._p.itertext())
-    print("Cover contains student:", STUDENT in cover)
-    print("Cover contains reg:", REG_NO in cover)
-    print("Cover contains title fragment:", "Financial Decision" in cover or "Multi-Factor" in cover)
+    cover = "\n".join(p.text for p in doc.paragraphs[:25])
+    print("Cover preview:")
+    print(cover)
+    assert GUIDE in cover and STUDENT in cover and REG_NO in cover
     print("Verification OK")
 
 
