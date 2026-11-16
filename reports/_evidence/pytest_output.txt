@@ -1,0 +1,35 @@
+........................................................................ [ 88%]
+.........                                                                [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:64
+  /Users/gagan/Documents/Projects/Multi-factor Financial Decision System/.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:64: PyparsingDeprecationWarning: 'oneOf' deprecated - use 'one_of'
+    prop = Group((name + Suppress("=") + comma_separated(value)) | oneOf(_CONSTANTS))
+
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:85
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:85
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:85
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:85
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:85
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:85
+  /Users/gagan/Documents/Projects/Multi-factor Financial Decision System/.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:85: PyparsingDeprecationWarning: 'parseString' deprecated - use 'parse_string'
+    parse = parser.parseString(pattern)
+
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:89
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:89
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:89
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:89
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:89
+.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:89
+  /Users/gagan/Documents/Projects/Multi-factor Financial Decision System/.venv/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:89: PyparsingDeprecationWarning: 'resetCache' deprecated - use 'reset_cache'
+    parser.resetCache()
+
+.venv/lib/python3.9/site-packages/matplotlib/_mathtext.py:45
+  /Users/gagan/Documents/Projects/Multi-factor Financial Decision System/.venv/lib/python3.9/site-packages/matplotlib/_mathtext.py:45: PyparsingDeprecationWarning: 'enablePackrat' deprecated - use 'enable_packrat'
+    ParserElement.enablePackrat()
+
+.venv/lib/python3.9/site-packages/urllib3/__init__.py:35
+  /Users/gagan/Documents/Projects/Multi-factor Financial Decision System/.venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+81 passed, 15 warnings in 5.02s
